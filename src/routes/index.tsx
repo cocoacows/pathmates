@@ -131,7 +131,7 @@ function Onboarding() {
           </div>
         ) : step === 1 ? (
           <Question title="What type of cancer are you navigating?" cols={2}>
-            {CANCER.map((c) => <Choice key={c} label={c} selected={a.cancer === c} onClick={() => pick("cancer", c)} wide={c === "I’m not sure yet"} />)}
+            {CANCER.map((c) => <Choice key={c} label={c} selected={a.cancer === c} onClick={() => pick("cancer", c)} wide={c === CANCER[CANCER.length - 1]} />)}
           </Question>
         ) : step === 2 ? (
           <Question title="Where are you right now?">
