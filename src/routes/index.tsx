@@ -27,7 +27,7 @@ function Choice({ label, selected, onClick }: { label: string; selected: boolean
       type="button"
       onClick={onClick}
       aria-pressed={selected}
-      className={`rounded-full border px-4 py-2.5 text-left text-sm transition-all ${
+      className={`w-full rounded-2xl border px-6 py-5 text-left text-lg leading-snug transition-all ${
         selected ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card hover:border-primary/50 hover:bg-accent/40"
       }`}
     >
@@ -99,7 +99,7 @@ function Onboarding() {
   const goReview = () => { setSummary(buildSummary(a)); next(); };
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-xl flex-col px-6 py-10">
+    <main className="mx-auto flex min-h-screen w-full max-w-2xl flex-col px-6 py-10">
       <header className="mb-10 flex items-center justify-between">
         <span className="font-display text-lg italic">Been There</span>
         {step > 0 && !done && (
@@ -216,7 +216,7 @@ function Question({ title, children }: { title: string; children: React.ReactNod
   return (
     <div>
       <h1 className="text-3xl leading-snug">{title}</h1>
-      <div className="mt-8 flex flex-wrap gap-2.5">{children}</div>
+      <div className="mt-8 grid gap-3">{children}</div>
     </div>
   );
 }
