@@ -19,6 +19,47 @@ const CANCER = ["Breast", "Lung", "Prostate", "Colorectal", "Blood (leukemia, ly
 const STAGE = ["Newly diagnosed", "Considering treatment", "In treatment", "After treatment", "Facing a recurrence"];
 const TOPICS = ["Treatment", "Side effects", "Family", "Work", "Relationships", "Uncertainty", "Something else"];
 
+const PROMPTS: Record<string, string[]> = {
+  Treatment: [
+    "The treatment I’m facing is…",
+    "What I still want to understand is…",
+    "What helped me decide was…",
+  ],
+  "Side effects": [
+    "The side effect that’s hardest right now is…",
+    "What I’ve tried so far is…",
+    "What I want to know is whether it gets better…",
+  ],
+  Family: [
+    "The person I’m most worried about is…",
+    "What I haven’t known how to say to my family is…",
+    "What has helped them support me is…",
+  ],
+  Work: [
+    "What I’m figuring out with work is…",
+    "What I wish my employer understood is…",
+    "What helped me keep going is…",
+  ],
+  Relationships: [
+    "What’s changed between me and my partner is…",
+    "What I’d like them to know is…",
+    "What helped us talk about it is…",
+  ],
+  Uncertainty: [
+    "What I’m most unsure about is…",
+    "On the hard days I cope by…",
+    "What I’d like to hear is how someone else got through the waiting…",
+  ],
+  "Something else": [
+    "What I want to share is…",
+    "What I’d like to hear from someone who’s been there is…",
+  ],
+};
+const DEFAULT_PROMPTS = [
+  "What I want to share is…",
+  "What I’d like to hear from someone who’s been there is…",
+];
+
 type Answers = { cancer?: string; stage?: string; topic?: string; story: string };
 
 function Choice({ label, selected, onClick, wide }: { label: string; selected: boolean; onClick: () => void; wide?: boolean }) {
@@ -71,6 +112,7 @@ function Onboarding() {
   const [summary, setSummary] = useState("");
   const [done, setDone] = useState(false);
   const recRef = useRef<any>(null);
+  const baseRef = useRef("");
 
   const total = 6;
   const next = () => setStep((s) => Math.min(s + 1, total - 1));
@@ -87,16 +129,28 @@ function Onboarding() {
     if (!SR) { setMode("type"); return; }
     const r = new SR();
     r.continuous = true; r.interimResults = true; r.lang = "en-US";
-    const base = a.story ? a.story + " " : "";
+    baseRef.current = a.story ? a.story + " " : "";
     r.onresult = (e: any) => {
       let txt = "";
       for (let i = 0; i < e.results.length; i++) txt += e.results[i][0].transcript;
-      setA((p) => ({ ...p, story: base + txt }));
+      setA((p) => ({ ...p, story: baseRef.current + txt }));
     };
     r.onend = () => setRecording(false);
     recRef.current = r; r.start(); setRecording(true); setMode("record");
   };
   const stopRecording = () => { recRef.current?.stop(); setRecording(false); };
+
+  const prompts = PROMPTS[a.topic ?? ""] ?? DEFAULT_PROMPTS;
+  const promptIntro =
+    a.topic && a.topic !== "Something else"
+      ? `You said ${a.topic.toLowerCase()} is on your mind. Try starting with:`
+      : "Try starting with:";
+
+  const addPrompt = (p: string) => {
+    const nextText = a.story.trim() ? `${a.story.trim()} ${p}` : p;
+    baseRef.current = nextText + " ";
+    setA((prev) => ({ ...prev, story: nextText }));
+  };
 
   const goReview = () => { setSummary(buildSummary(a)); next(); };
 
@@ -159,14 +213,29 @@ function Onboarding() {
             ) : (
               <>
                 {mode === "record" && (
-                  <div className="mt-6 flex items-center gap-3">
-                    {recording ? (
-                      <button onClick={stopRecording} className="flex items-center gap-2 rounded-full bg-destructive px-5 py-2.5 text-sm text-destructive-foreground">
-                        <span className="h-2 w-2 animate-pulse rounded-full bg-destructive-foreground" />Listening — tap to stop
-                      </button>
-                    ) : (
-                      <button onClick={startRecording} className="rounded-full border border-border px-5 py-2.5 text-sm">Record more</button>
-                    )}
+                  <div className="mt-6">
+                    <div className="flex items-center gap-3">
+                      {recording ? (
+                        <button onClick={stopRecording} className="flex items-center gap-2 rounded-full bg-destructive px-5 py-2.5 text-sm text-destructive-foreground">
+                          <span className="h-2 w-2 animate-pulse rounded-full bg-destructive-foreground" />Listening — tap to stop
+                        </button>
+                      ) : (
+                        <button onClick={startRecording} className="rounded-full border border-border px-5 py-2.5 text-sm">Record more</button>
+                      )}
+                    </div>
+                    <p className="mt-7 text-sm font-medium text-muted-foreground">{promptIntro}</p>
+                    <div className="mt-3 grid gap-2.5">
+                      {prompts.map((p) => (
+                        <button
+                          key={p}
+                          type="button"
+                          onClick={() => addPrompt(p)}
+                          className="rounded-2xl border border-border bg-card px-5 py-3.5 text-left text-base leading-snug transition hover:border-primary/50 hover:bg-accent/40"
+                        >
+                          {p}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 )}
                 <textarea
