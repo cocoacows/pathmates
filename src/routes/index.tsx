@@ -212,7 +212,6 @@ function Onboarding() {
               </>
             ) : (
               <>
-                {mode !== "choose" && (
                   <div className="mt-6">
                     <div className="flex items-center gap-3">
                       {recording ? (
@@ -237,7 +236,6 @@ function Onboarding() {
                       ))}
                     </div>
                   </div>
-                )}
                 <textarea
                   autoFocus={mode === "type"}
                   value={a.story}
