@@ -21,13 +21,15 @@ const TOPICS = ["Treatment", "Side effects", "Family", "Work", "Relationships", 
 
 type Answers = { cancer?: string; stage?: string; topic?: string; story: string };
 
-function Choice({ label, selected, onClick }: { label: string; selected: boolean; onClick: () => void }) {
+function Choice({ label, selected, onClick, wide }: { label: string; selected: boolean; onClick: () => void; wide?: boolean }) {
   return (
     <button
       type="button"
       onClick={onClick}
       aria-pressed={selected}
-      className={`w-full rounded-2xl border px-6 py-5 text-left text-lg leading-snug transition-all ${
+      className={`w-full rounded-2xl border px-6 py-5 text-center text-lg leading-snug transition-all ${
+        wide ? "sm:col-span-2" : ""
+      } ${
         selected ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card hover:border-primary/50 hover:bg-accent/40"
       }`}
     >
@@ -128,8 +130,8 @@ function Onboarding() {
             </button>
           </div>
         ) : step === 1 ? (
-          <Question title="What type of cancer are you navigating?">
-            {CANCER.map((c) => <Choice key={c} label={c} selected={a.cancer === c} onClick={() => pick("cancer", c)} />)}
+          <Question title="What type of cancer are you navigating?" cols={2}>
+            {CANCER.map((c) => <Choice key={c} label={c} selected={a.cancer === c} onClick={() => pick("cancer", c)} wide={c === CANCER[CANCER.length - 1]} />)}
           </Question>
         ) : step === 2 ? (
           <Question title="Where are you right now?">
@@ -212,11 +214,11 @@ function Onboarding() {
   );
 }
 
-function Question({ title, children }: { title: string; children: React.ReactNode }) {
+function Question({ title, children, cols = 1 }: { title: string; children: React.ReactNode; cols?: number }) {
   return (
     <div>
       <h1 className="text-3xl leading-snug">{title}</h1>
-      <div className="mt-8 grid gap-3">{children}</div>
+      <div className={`mt-8 grid gap-3 ${cols === 2 ? "sm:grid-cols-2" : ""}`}>{children}</div>
     </div>
   );
 }
