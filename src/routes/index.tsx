@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Find a story that feels like yours" },
+      { title: "Pathmates — Find a story that feels like yours" },
       { name: "description", content: "A gentle, private way to find stories from people who have navigated cancer." },
       { property: "og:title", content: "Find a story that feels like yours" },
       { property: "og:description", content: "A gentle, private way to find stories from people who have navigated cancer." },
@@ -157,7 +157,7 @@ function Onboarding() {
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-2xl flex-col px-6 py-10">
       <header className="mb-10 flex items-center justify-between">
-        <span className="font-display text-lg italic">Been There</span>
+        <span className="flex items-center gap-2 font-display text-lg italic"><img src="/pebble.svg" alt="" className="h-8 w-8" />Pathmates</span>
         {step > 0 && !done && (
           <div className="flex gap-1.5" aria-label={`Step ${step} of ${total - 1}`}>
             {Array.from({ length: total - 1 }).map((_, i) => (
@@ -170,11 +170,13 @@ function Onboarding() {
       <section key={done ? "done" : step} className="animate-rise flex-1">
         {done ? (
           <div className="pt-10 text-center">
+            <img src="/pebble.svg" alt="Pebble waving" className="mx-auto mb-6 h-36 w-auto" />
             <h1 className="text-3xl">Finding stories for you…</h1>
             <p className="mt-4 text-muted-foreground">“{summary}”</p>
           </div>
         ) : step === 0 ? (
           <div className="pt-12">
+            <img src="/pebble.svg" alt="Pebble, a friendly stone character, waving hello" className="mb-6 h-40 w-auto" />
             <h1 className="text-4xl leading-tight">Let’s find a story that feels relevant to you.</h1>
             <p className="mt-6 text-lg leading-relaxed text-muted-foreground">
               Share only what you’re comfortable with. Your answers stay private unless you later choose to share your story.
