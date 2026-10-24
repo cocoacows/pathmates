@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Find a story that feels like yours" },
+      { title: "Pathmates — Find a story that feels like yours" },
       { name: "description", content: "A gentle, private way to find stories from people who have navigated cancer." },
       { property: "og:title", content: "Find a story that feels like yours" },
       { property: "og:description", content: "A gentle, private way to find stories from people who have navigated cancer." },
