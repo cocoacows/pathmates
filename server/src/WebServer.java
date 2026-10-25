@@ -34,7 +34,7 @@ public class WebServer
 		server.setExecutor(Executors.newFixedThreadPool(10));
 		
 		server.start();
-		server.createContext("/", new FileHandler(new File("websiteFiles/html/index.html")));
+		server.createContext("/", new FileHandler(new File("websiteFiles/index.html")));
 		server.createContext("/api/submitSurvey", new APIHandler()
 		{
 			
@@ -169,8 +169,8 @@ public class WebServer
 			}
 			
 		});
-		server.createContext("/css", new DirectoryHandler("/css", new File("websiteFiles")));
-		server.createContext("/js", new DirectoryHandler("/js", new File("websiteFiles")));
+		server.createContext("/style.css", new FileHandler(new File("websiteFiles/style.css")));
+		server.createContext("/script.js", new FileHandler(new File("websiteFiles/script.js")));
 		server.createContext("/favicon.ico", new FileHandler(new File("websiteFiles/favicon.ico")));
 	}
 	

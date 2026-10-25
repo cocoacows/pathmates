@@ -9,6 +9,7 @@ lerna-debug.log*
 
 node_modules
 .worktrees/
+server/build/
 dist
 dist-ssr
 .output
