@@ -30,11 +30,18 @@ public class WebServer
 	static String openAIAPIKey = System.getenv().getOrDefault("OPENAI_API_KEY", "");
 	static String adminPasscode = System.getenv().getOrDefault("ADMIN_PASSCODE", "");
 	private static final SecureRandom tokenRandom = new SecureRandom();
+	private static final int MAX_SESSIONS = 2000;
+	private static final long SESSION_AGE_MS = 60L * 60 * 1000;
 	public static void main(String[] args) throws IOException
 	{
+		if(!adminPasscode.isBlank() && adminPasscode.length() < 24)
+			throw new IllegalArgumentException("ADMIN_PASSCODE must be at least 24 characters.");
+		// JDK HttpServer closes uploads that never finish; audio may take longer than text.
+		System.setProperty("sun.net.httpserver.maxReqTime", "120");
+		System.setProperty("sun.net.httpserver.maxRspTime", "300");
 		int port = Integer.parseInt(System.getenv().getOrDefault("PORT", "8080"));
 		HttpServer server = HttpServer.create(new InetSocketAddress("0.0.0.0", port), 0);
-		server.setExecutor(Executors.newFixedThreadPool(10));
+		server.setExecutor(Executors.newVirtualThreadPerTaskExecutor());
 		
 		server.createContext("/", new FileHandler(new File("websiteFiles/index.html")));
 		server.createContext("/api/submitSurvey", new APIHandler()
@@ -42,6 +49,9 @@ public class WebServer
 			
 			public JSONObject handleAPICall(JSONObject JSON)
 			{
+				users.entrySet().removeIf(entry -> System.currentTimeMillis() - entry.getValue().createdAt > SESSION_AGE_MS);
+				if(users.size() >= MAX_SESSIONS)
+					return transcriptionError(503, "Too many active sessions. Please try later.");
 
 				User newUser = new User();
 				newUser.name = getStringOrDefault(JSON, "name", null);
@@ -74,7 +84,7 @@ public class WebServer
 				String audioBase64 = getStringOrDefault(JSON, "audio", null);
 
 		        // Verify the user exists.
-		        if(sessionToken == null || !users.containsKey(sessionToken))
+		        if(sessionToken == null || authorizedUser(JSON) == null)
 		            return transcriptionError(404, "User not found.");
 
 		        // Verify audio was included.
@@ -137,9 +147,10 @@ public class WebServer
 			{
 				String sessionToken = getStringOrDefault(JSON, "session-token", null);
 				String transcript = getStringOrDefault(JSON, "transcript", null);
+				User user = authorizedUser(JSON);
 
 		        // Verify the user exists.
-				if(sessionToken == null || !users.containsKey(sessionToken))
+				if(sessionToken == null || user == null)
 		            return transcriptionError(404, "User not found.");
 
 		        // Verify audio was included.
@@ -151,10 +162,11 @@ public class WebServer
 		        try
 		        {
 		            // Prevent excessively large uploads.
-		            if(transcript.length() > 36000000)
+		            if(transcript.length() > 30000)
 		                return transcriptionError(413, "Transcript text file too large.");
 
 		            JSONObject categories = processTranscript(transcript);
+		            user.saveCategories(transcript, categories);
 		            
 		            JSONObject ret = new JSONObject();
 
@@ -185,6 +197,8 @@ public class WebServer
                     return new JSONObject().put("response", 200).put("successful", true).put("id", id).put("status", "pending");
                 } catch (IllegalArgumentException e) {
                     return transcriptionError(400, e.getMessage());
+                } catch (IllegalStateException e) {
+                    return transcriptionError(503, e.getMessage());
                 }
             }
         });
@@ -232,7 +246,13 @@ public class WebServer
 	
 
     private static User authorizedUser(JSONObject json) {
-        return users.get(json.optString("session-token", ""));
+        String token = json.optString("session-token", "");
+        User user = users.get(token);
+        if (user != null && System.currentTimeMillis() - user.createdAt > SESSION_AGE_MS) {
+            users.remove(token, user);
+            return null;
+        }
+        return user;
     }
 
     private static boolean validPasscode(JSONObject json) {

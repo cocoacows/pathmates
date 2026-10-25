@@ -130,6 +130,7 @@ p { margin: 0; }
 .story-full { white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 1rem; line-height: 1.65; }
 .admin-story { margin-top: 1.5rem; padding: 1.5rem; border: 1px solid var(--border); border-radius: 1rem; background: var(--card); }
 .admin-story h2 { margin-bottom: .5rem; }
+.suggestion { margin-top: 1.25rem; padding: 1.25rem; border: 1px solid var(--border); border-radius: 1rem; background: color-mix(in oklch, var(--accent) 35%, var(--card)); }
 .noscript { text-align: center; color: var(--muted-foreground); }
 @media (min-width: 640px) {
   .question-grid.two-columns { grid-template-columns: repeat(2, minmax(0, 1fr)); }

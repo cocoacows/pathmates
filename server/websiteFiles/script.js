@@ -246,6 +246,7 @@
     promptIndex: 0,
     promptAnswers: [],
     finalStory: "",
+    suggestedDraft: "",
     storyTitle: "",
     storyAuthor: "",
     openToHelp: false,
@@ -284,6 +285,7 @@
   const tokenKey = "pathmates-session-token";
   let token = sessionStorage.getItem(tokenKey) || "";
   let tokenForSurvey = sessionStorage.getItem("pathmates-survey") || "";
+  let pendingSurvey = null;
   function surveyPayload() {
     return { "cancer-type": state.answers.cancer || "", "cancer-stage": state.answers.stage || "", "mind-state": state.answers.topic || "", "age-band": state.answers.age || "" };
   }
@@ -305,13 +307,19 @@
     const survey = surveyPayload();
     const fingerprint = JSON.stringify(survey);
     if (token && tokenForSurvey === fingerprint) return token;
-    const data = await api("/api/submitSurvey", survey);
-    token = data["session-token"];
-    if (!token) throw new Error("The server did not return a session token.");
-    tokenForSurvey = fingerprint;
-    sessionStorage.setItem(tokenKey, token);
-    sessionStorage.setItem("pathmates-survey", fingerprint);
-    return token;
+    if (pendingSurvey?.fingerprint === fingerprint) return pendingSurvey.promise;
+    const promise = api("/api/submitSurvey", survey).then(data => {
+      const nextToken = data["session-token"];
+      if (!nextToken) throw new Error("The server did not return a session token.");
+      token = nextToken;
+      tokenForSurvey = fingerprint;
+      sessionStorage.setItem(tokenKey, token);
+      sessionStorage.setItem("pathmates-survey", fingerprint);
+      return token;
+    });
+    pendingSurvey = { fingerprint, promise };
+    try { return await promise; }
+    finally { if (pendingSurvey?.promise === promise) pendingSurvey = null; }
   }
   async function loadApprovedStories() {
     try {
@@ -392,23 +400,27 @@
     candid: "Candid, as you asked",
   };
 
+  const MATCH_CATEGORY_KEYS = ["story_topics", "emotional_themes", "practical_impacts", "physical_experiences", "treatments", "support_themes"];
+  function categoryTags(categories = {}) {
+    return MATCH_CATEGORY_KEYS.flatMap((key) => Array.isArray(categories[key]) ? categories[key] : [])
+      .filter((value) => typeof value === "string" && !value.includes("unknown") && !value.includes("not_mentioned"));
+  }
+
   function detectThemes(topic, text, categories = {}) {
     const t = text.toLowerCase();
     const found = THEME_PATTERNS.filter(([, re]) => re.test(t)).map(([key]) => key);
     if (topic && topic !== "Something else") found.push(topic.toLowerCase());
-    for (const value of Object.values(categories)) {
-      if (Array.isArray(value)) found.push(...value);
-    }
+    found.push(...categoryTags(categories));
     return [...new Set(found)];
   }
 
   function rankStories(input, limit = 3) {
     const themes = detectThemes(input.topic, input.story, input.categories);
-    const cancerKey = input.cancer?.split(" ")[0];
+    const cancerKey = input.cancer?.toLowerCase().split(/[\s(]/)[0];
     const sharedStories = state.approvedStories.map((item) => ({
       id: item.id, title: item.title, author: item.author,
       cancer: item.cancer || "", stage: item.stage || "Shared experience",
-      themes: [...new Set([...Object.values(item.categories || {}).filter(Array.isArray).flat(), (item.topic || "").toLowerCase()].filter(Boolean))],
+      themes: [...new Set([...categoryTags(item.categories), (item.topic || "").toLowerCase()].filter(Boolean))],
       style: "", excerpt: item.text.slice(0, 220), text: item.text,
       minutes: Math.max(1, Math.ceil(item.text.split(/\s+/).length / 200)), sample: false,
     }));
@@ -422,7 +434,7 @@
       const shared = story.themes.filter((theme) => themes.includes(theme));
       shared.slice(0, 2).forEach((theme) => reasons.push(`Shared concern: ${theme}`));
       score += shared.length * 2;
-      if (cancerKey && story.cancer.toLowerCase() === cancerKey.toLowerCase()) {
+      if (cancerKey && story.cancer.toLowerCase().split(/[\s(]/)[0] === cancerKey) {
         score += 1;
         reasons.push(`${story.cancer} cancer`);
       }
@@ -464,6 +476,7 @@
         ${state.mode === "choose" ? `<button type="button" class="press text-toggle" data-action="type">I’d rather type</button>` : ""}
       </div>
       <p class="record-disclosure">If you record, your audio is sent to Meta for transcription. You can review and edit the text before continuing.</p>
+      <p class="record-disclosure">When AI category suggestions are enabled, your text is sent to OpenAI when you find stories. It is not published.</p>
       ${state.micError ? `<p class="error-text" role="alert">${escapeHtml(state.micError)}</p>` : ""}
       ${textArea}
     </div>`;
@@ -508,7 +521,7 @@
           <div class="match-reasons"><p class="reason-title">Why this matched</p>
             <ul class="reason-list">${(reasons.length ? reasons : ["A story from someone further along the path"]).map((reason) => `<li>${escapeHtml(reason)}</li>`).join("")}</ul>
           </div>
-          <div class="story-bottom"><span>${story.minutes} min read${story.sample ? " · Sample story" : ""}</span>
+          <div class="story-bottom"><span>${story.sample ? "Sample story · excerpt" : `${story.minutes} min read`}</span>
             ${story.sample ? "" : `<button type="button" class="press primary-button read-button" data-action="read-story" data-id="${escapeHtml(story.id)}">${state.expandedStoryId === story.id ? "Close story" : "Read story"}</button>`}
           </div>
           ${!story.sample && state.expandedStoryId === story.id ? `<p class="story-full">${escapeHtml(story.text)}</p>` : ""}
@@ -538,6 +551,11 @@
       <div class="share-actions"><button class="press text-toggle" type="button" data-action="assemble">Use my prompt answers</button>
       <button class="press text-toggle" type="button" data-action="weave" ${state.busy || !assembledStory() ? "disabled" : ""}>Weave with AI</button></div>
       <p class="small-intro">AI drafting sends your answers to OpenAI. You can edit or ignore the result.</p>
+      <p class="small-intro">On submission, your final text is also sent to OpenAI for category suggestions when configured.</p>
+      ${state.suggestedDraft ? `<div class="suggestion"><p class="field-label">Suggested draft</p>
+        <p class="story-full">${escapeHtml(state.suggestedDraft)}</p>
+        <div class="share-actions"><button class="primary-button" type="button" data-action="accept-suggestion">Use this draft</button>
+        <button class="press text-toggle" type="button" data-action="discard-suggestion">Keep my text</button></div></div>` : ""}
       <label class="field-label" for="story-title">Story title</label>
       <input id="story-title" class="story-field" maxlength="120" placeholder="Give your story a title" value="${escapeHtml(state.storyTitle)}" />
       <label class="field-label" for="story-author">Name to display</label>
@@ -579,7 +597,7 @@
   }
 
   function render() {
-    if (window.location.pathname === "/admin") {
+    if (["/admin", "/admin/"].includes(window.location.pathname)) {
       progress.hidden = true;
       footer.hidden = true;
       page.innerHTML = `<div class="animate-rise">${adminHtml()}</div>`;
@@ -673,8 +691,8 @@
     render();
     try {
       const result = await api("/api/weave", { "session-token": await ensureToken(), answers: assembledStory() });
-      state.finalStory = result.draft;
-      state.status = "Draft ready. Please review and edit it before submitting.";
+      state.suggestedDraft = result.draft;
+      state.status = "Review the suggestion and choose whether to use it.";
     } catch (error) { state.status = error.message; }
     state.busy = false;
     render();
@@ -695,7 +713,7 @@
       state.categories = categories;
       await api("/api/stories/submit", { "session-token": sessionToken,
         title: state.storyTitle.trim(), author: state.storyAuthor.trim(), text: state.finalStory.trim(),
-        "open-to-help": state.openToHelp, categories });
+        "open-to-help": state.openToHelp });
       state.status = "";
       goToStep(9);
     } catch (error) { state.status = error.message; }
@@ -931,7 +949,9 @@
         else openShareReview();
         break;
       case "finish-prompts": openShareReview(); break;
-      case "assemble": state.finalStory = assembledStory(); state.status = ""; render(); break;
+      case "assemble": state.suggestedDraft = assembledStory(); state.status = "Review the suggestion and choose whether to use it."; render(); break;
+      case "accept-suggestion": state.finalStory = state.suggestedDraft; state.suggestedDraft = ""; state.status = "You can keep editing before submission."; render(); break;
+      case "discard-suggestion": state.suggestedDraft = ""; state.status = ""; render(); break;
       case "weave": void weaveDraft(); break;
       case "submit-story": void submitStory(); break;
       case "find-after-share": state.path = "find"; goToStep(5); break;
