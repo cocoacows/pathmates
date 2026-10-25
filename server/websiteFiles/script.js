@@ -515,15 +515,15 @@
       </div>
       <ul class="stories">${matches.map(({ story, reasons }, index) => `
         <li class="stagger" style="animation-delay:${index * 60}ms"><article class="story-card">
-          <p class="story-meta">${escapeHtml(story.author)}${story.cancer ? ` · ${escapeHtml(story.cancer)} cancer` : ""} · ${escapeHtml(story.stage.toLowerCase())}</p>
+          <p class="story-meta">${escapeHtml(story.author)}${story.cancer ? ` · ${escapeHtml(story.cancer)} cancer` : ""} · ${escapeHtml(story.stage.toLowerCase())}${story.sample ? " · Sample story" : ""}</p>
           <h2>${escapeHtml(story.title)}</h2>
           <p class="story-excerpt">“${escapeHtml(story.excerpt)}”</p>
           <div class="match-reasons"><p class="reason-title">Why this matched</p>
             <ul class="reason-list">${(reasons.length ? reasons : ["A story from someone further along the path"]).map((reason) => `<li>${escapeHtml(reason)}</li>`).join("")}</ul>
           </div>
-          <div class="story-bottom"><span>${story.sample ? "Sample story · excerpt" : `${story.minutes} min read`}</span>
-            ${story.sample ? "" : `<button type="button" class="press primary-button read-button" data-action="read-story" data-id="${escapeHtml(story.id)}">${state.expandedStoryId === story.id ? "Close story" : "Read story"}</button>`}
-          </div>
+          ${story.sample ? "" : `<div class="story-bottom"><span>${story.minutes} min read</span>
+            <button type="button" class="press primary-button read-button" data-action="read-story" data-id="${escapeHtml(story.id)}">${state.expandedStoryId === story.id ? "Close story" : "Read story"}</button>
+          </div>`}
           ${!story.sample && state.expandedStoryId === story.id ? `<p class="story-full">${escapeHtml(story.text)}</p>` : ""}
         </article></li>`).join("")}</ul>
       ${state.status ? `<p class="error-text" role="status">${escapeHtml(state.status)}</p>` : ""}
