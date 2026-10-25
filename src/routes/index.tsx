@@ -1,5 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
+import { getStarters, HEAR_OPTIONS, type Hear } from "@/lib/prompts";
+import { rankStories } from "@/lib/stories";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -19,48 +21,7 @@ const CANCER = ["Breast", "Lung", "Prostate", "Colorectal", "Blood (leukemia, ly
 const STAGE = ["Newly diagnosed", "Considering treatment", "In treatment", "After treatment", "Facing a recurrence"];
 const TOPICS = ["Treatment", "Side effects", "Family", "Work", "Relationships", "Uncertainty", "Something else"];
 
-const PROMPTS: Record<string, string[]> = {
-  Treatment: [
-    "The treatment I’m facing is…",
-    "What I still want to understand is…",
-    "What helped me decide was…",
-  ],
-  "Side effects": [
-    "The side effect that’s hardest right now is…",
-    "What I’ve tried so far is…",
-    "What I want to know is whether it gets better…",
-  ],
-  Family: [
-    "The person I’m most worried about is…",
-    "What I haven’t known how to say to my family is…",
-    "What has helped them support me is…",
-  ],
-  Work: [
-    "What I’m figuring out with work is…",
-    "What I wish my employer understood is…",
-    "What helped me keep going is…",
-  ],
-  Relationships: [
-    "What’s changed between me and my partner is…",
-    "What I’d like them to know is…",
-    "What helped us talk about it is…",
-  ],
-  Uncertainty: [
-    "What I’m most unsure about is…",
-    "On the hard days I cope by…",
-    "What I’d like to hear is how someone else got through the waiting…",
-  ],
-  "Something else": [
-    "What I want to share is…",
-    "What I’d like to hear from someone who’s been there is…",
-  ],
-};
-const DEFAULT_PROMPTS = [
-  "What I want to share is…",
-  "What I’d like to hear from someone who’s been there is…",
-];
-
-type Answers = { cancer?: string; stage?: string; topic?: string; story: string };
+type Answers = { cancer?: string; stage?: string; topic?: string; hear?: Hear; story: string };
 
 function Choice({ label, selected, onClick, wide }: { label: string; selected: boolean; onClick: () => void; wide?: boolean }) {
   return (
@@ -140,16 +101,16 @@ function Onboarding() {
   };
   const stopRecording = () => { recRef.current?.stop(); setRecording(false); };
 
-  const prompts = PROMPTS[a.topic ?? ""] ?? DEFAULT_PROMPTS;
+  const { prompts, showHear } = getStarters(a.stage, a.topic);
   const promptIntro =
     a.topic && a.topic !== "Something else"
       ? `You said ${a.topic.toLowerCase()} is on your mind. Try starting with:`
       : "Try starting with:";
 
-  const addPrompt = (p: string) => {
+  const addPrompt = (p: string, hear?: Hear) => {
     const nextText = a.story.trim() ? `${a.story.trim()} ${p}` : p;
     baseRef.current = nextText + " ";
-    setA((prev) => ({ ...prev, story: nextText }));
+    setA((prev) => ({ ...prev, story: nextText, ...(hear ? { hear } : {}) }));
   };
 
   const goReview = () => { setSummary(buildSummary(a)); next(); };
@@ -169,11 +130,12 @@ function Onboarding() {
 
       <section key={done ? "done" : step} className="animate-rise flex-1">
         {done ? (
-          <div className="pt-10 text-center">
-            <img src="/pebble.svg" alt="Pebble waving" className="mx-auto mb-6 h-36 w-auto" />
-            <h1 className="text-3xl">Finding stories for you…</h1>
-            <p className="mt-4 text-muted-foreground">“{summary}”</p>
-          </div>
+          <Results
+            summary={summary}
+            answers={a}
+            onHear={(h) => setA((p) => ({ ...p, hear: h }))}
+            onEdit={() => setDone(false)}
+          />
         ) : step === 0 ? (
           <div className="pt-12">
             <img src="/pebble.svg" alt="Pebble, a friendly stone character, waving hello" className="mb-6 h-40 w-auto" />
@@ -237,6 +199,28 @@ function Onboarding() {
                         </button>
                       ))}
                     </div>
+                    {showHear && (
+                      <>
+                        <p className="mt-6 text-sm font-medium text-muted-foreground">And what would help most to hear?</p>
+                        <div className="mt-3 flex flex-wrap gap-2.5">
+                          {HEAR_OPTIONS.map((h) => (
+                            <button
+                              key={h.key}
+                              type="button"
+                              aria-pressed={a.hear === h.key}
+                              onClick={() => addPrompt(h.starter, h.key)}
+                              className={`rounded-full border px-5 py-2.5 text-base transition ${
+                                a.hear === h.key
+                                  ? "border-primary bg-primary text-primary-foreground"
+                                  : "border-border bg-card hover:border-primary/50 hover:bg-accent/40"
+                              }`}
+                            >
+                              {h.label}
+                            </button>
+                          ))}
+                        </div>
+                      </>
+                    )}
                   </div>
                 <textarea
                   autoFocus={mode === "type"}
@@ -280,6 +264,73 @@ function Onboarding() {
         </footer>
       )}
     </main>
+  );
+}
+
+function Results({ summary, answers, onHear, onEdit }: { summary: string; answers: Answers; onHear: (h: Hear) => void; onEdit: () => void }) {
+  const matches = rankStories({ cancer: answers.cancer, stage: answers.stage, topic: answers.topic, hear: answers.hear, text: answers.story }, 3);
+  return (
+    <div>
+      <div className="flex items-start gap-4">
+        <img src="/pebble.svg" alt="" className="h-14 w-auto shrink-0" />
+        <div>
+          <h1 className="text-3xl leading-snug">Stories that may speak to you</h1>
+          <p className="mt-2 text-muted-foreground">
+            Based on: <span className="font-display italic text-foreground">{summary}</span>{" "}
+            <button type="button" onClick={onEdit} className="press ml-1 text-sm underline underline-offset-4 hover:text-foreground">Edit</button>
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-7 flex flex-wrap items-center gap-2" role="group" aria-label="What kind of story">
+        <span className="mr-1 text-sm text-muted-foreground">Show me</span>
+        {HEAR_OPTIONS.map((h) => (
+          <button
+            key={h.key}
+            type="button"
+            aria-pressed={answers.hear === h.key}
+            onClick={() => onHear(h.key)}
+            className={`press chip rounded-full border px-4 py-2 text-sm ${
+              answers.hear === h.key ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card hover:border-primary/50 hover:bg-accent/40"
+            }`}
+          >
+            {h.label}
+          </button>
+        ))}
+      </div>
+
+      <ul className="mt-6 grid gap-4">
+        {matches.map(({ story, reasons }, i) => (
+          <li key={story.id} className="stagger" style={{ animationDelay: `${i * 60}ms` }}>
+            <article className="story-card rounded-3xl border border-border bg-card p-6 sm:p-7">
+              <p className="text-sm text-muted-foreground">
+                {story.author} · {story.cancer} cancer · {story.stage.toLowerCase()}
+              </p>
+              <h2 className="mt-2 text-2xl leading-snug">{story.title}</h2>
+              <p className="mt-3 leading-relaxed text-foreground/85">“{story.excerpt}”</p>
+
+              <div className="mt-5 rounded-2xl bg-accent/50 px-4 py-3">
+                <p className="text-xs font-medium uppercase tracking-wide text-accent-foreground/80">Why this matched</p>
+                <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1.5 text-sm text-accent-foreground">
+                  {reasons.length ? reasons.map((r) => <li key={r}>{r}</li>) : <li>A story from someone further along the path</li>}
+                </ul>
+              </div>
+
+              <div className="mt-5 flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">{story.minutes} min read · Sample story</span>
+                <button type="button" className="press rounded-full bg-primary px-6 py-2.5 text-sm font-medium text-primary-foreground hover:opacity-90">
+                  Read story
+                </button>
+              </div>
+            </article>
+          </li>
+        ))}
+      </ul>
+
+      <p className="mt-8 text-center text-sm text-muted-foreground">
+        These are shared experiences, not medical advice. Your answers stay private.
+      </p>
+    </div>
   );
 }
 

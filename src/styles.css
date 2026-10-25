@@ -68,5 +68,27 @@
   h1, h2 { font-family: var(--font-display); }
 }
 
-@keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
-.animate-rise { animation: rise 0.5s ease-out both; }
+:root {
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+@keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.animate-rise { animation: rise 320ms var(--ease-out) both; }
+.stagger { animation: rise 320ms var(--ease-out) both; }
+
+/* Pressable feedback: transform only, short, ease-out */
+.press { transition: transform 160ms var(--ease-out), opacity 160ms ease, background-color 160ms ease, border-color 160ms ease; }
+.press:active { transform: scale(0.97); }
+.chip { transition-property: transform, background-color, border-color, color; }
+
+.story-card { transition: border-color 200ms ease, transform 200ms var(--ease-out); }
+@media (hover: hover) and (pointer: fine) {
+  .story-card:hover { border-color: color-mix(in oklch, var(--primary) 40%, var(--border)); transform: translateY(-2px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-rise, .stagger { animation: fade 200ms ease both; }
+  .story-card:hover { transform: none; }
+  .press:active { transform: none; }
+}
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
