@@ -86,7 +86,58 @@
   .story-card:hover { border-color: color-mix(in oklch, var(--primary) 40%, var(--border)); transform: translateY(-2px); }
 }
 
+/* Type: tighter tracking and leading as size grows */
+h1 { letter-spacing: -0.02em; line-height: 1.15; font-optical-sizing: auto; }
+h2 { letter-spacing: -0.015em; }
+.progress-dot { transition: background-color 240ms ease; }
+
+/* Record button: the one primary action on the recording step */
+.mic {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 96px;
+  height: 96px;
+  border-radius: 9999px;
+  border: 0;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  box-shadow: 0 8px 24px color-mix(in oklch, var(--primary) 30%, transparent);
+}
+.mic:disabled { opacity: 0.5; }
+.mic::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  border: 2px solid var(--primary);
+  opacity: 0;
+  pointer-events: none;
+}
+.mic-live { background: var(--destructive); box-shadow: 0 8px 24px color-mix(in oklch, var(--destructive) 30%, transparent); }
+.mic-live::after { border-color: var(--destructive); animation: ring 1.8s var(--ease-out) infinite; }
+.mic-stop { width: 26px; height: 26px; border-radius: 7px; background: var(--primary-foreground); }
+@keyframes ring { from { opacity: 0.5; transform: scale(1); } to { opacity: 0; transform: scale(1.5); } }
+
+/* Back / Skip bar: translucent so content scrolls underneath */
+.sticky-bar {
+  position: sticky;
+  bottom: 0;
+  background: color-mix(in oklch, var(--background) 72%, transparent);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  backdrop-filter: blur(16px) saturate(160%);
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .sticky-bar { background: var(--background); -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
+@media (prefers-contrast: more) {
+  :root { --muted-foreground: oklch(0.38 0.03 60); --border: oklch(0.7 0.03 75); }
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .mic-live::after { animation: none; }
   .animate-rise, .stagger { animation: fade 200ms ease both; }
   .story-card:hover { transform: none; }
   .press:active { transform: none; }

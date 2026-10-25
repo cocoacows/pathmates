@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { getStarters, HEAR_OPTIONS, type Hear } from "@/lib/prompts";
 import { rankStories } from "@/lib/stories";
+import { startRecorder, transcribe, type Recorder } from "@/lib/recorder";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -72,9 +73,11 @@ function Onboarding() {
   const [a, setA] = useState<Answers>({ story: "" });
   const [mode, setMode] = useState<"choose" | "type" | "record">("choose");
   const [recording, setRecording] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
+  const [micError, setMicError] = useState("");
   const [summary, setSummary] = useState("");
   const [done, setDone] = useState(false);
-  const recRef = useRef<any>(null);
+  const recRef = useRef<Recorder | null>(null);
   const baseRef = useRef("");
 
   const total = 7;
@@ -82,26 +85,49 @@ function Onboarding() {
   const back = () => setStep((s) => Math.max(s - 1, 0));
   const pick = (k: keyof Answers, v: string) => {
     setA((p) => ({ ...p, [k]: v }));
-    setTimeout(next, 220);
+    setTimeout(next, 140); // long enough to see the selection land, short enough to feel direct
   };
 
-  useEffect(() => () => recRef.current?.stop?.(), []);
+  const [secs, setSecs] = useState(0);
+  useEffect(() => {
+    if (!recording) return;
+    setSecs(0);
+    const t = setInterval(() => setSecs((s) => s + 1), 1000);
+    return () => clearInterval(t);
+  }, [recording]);
+  const clock = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
 
-  const startRecording = () => {
-    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SR) { setMode("type"); return; }
-    const r = new SR();
-    r.continuous = true; r.interimResults = true; r.lang = "en-US";
-    baseRef.current = a.story ? a.story + " " : "";
-    r.onresult = (e: any) => {
-      let txt = "";
-      for (let i = 0; i < e.results.length; i++) txt += e.results[i][0].transcript;
-      setA((p) => ({ ...p, story: baseRef.current + txt }));
-    };
-    r.onend = () => setRecording(false);
-    recRef.current = r; r.start(); setRecording(true); setMode("record");
+  useEffect(() => () => recRef.current?.cancel(), []);
+
+  // Record, then send the audio to /api/transcribe (Meta Muse Voice Transcribe) when the patient stops.
+  const startRecording = async () => {
+    setMicError("");
+    try {
+      recRef.current = await startRecorder(() => void stopRecording());
+      setRecording(true);
+      setMode("record");
+    } catch {
+      setMicError("We couldn’t use your microphone. You can type your story instead.");
+      setMode("type");
+    }
   };
-  const stopRecording = () => { recRef.current?.stop(); setRecording(false); };
+  const stopRecording = async () => {
+    const rec = recRef.current;
+    if (!rec) return;
+    recRef.current = null;
+    setRecording(false);
+    setTranscribing(true);
+    try {
+      const wav = await rec.stop();
+      const text = (await transcribe(wav)).trim();
+      if (text) setA((p) => ({ ...p, story: p.story.trim() ? `${p.story.trim()} ${text}` : text }));
+      else setMicError("We didn’t catch anything. Try again, or type instead.");
+    } catch (err) {
+      setMicError(err instanceof Error ? err.message : "Couldn’t transcribe that recording.");
+    } finally {
+      setTranscribing(false);
+    }
+  };
 
   const { prompts } = getStarters(a.stage, a.topic);
   const promptIntro =
@@ -122,10 +148,13 @@ function Onboarding() {
       <header className="mb-10 flex items-center justify-between">
         <span className="flex items-center gap-2 font-display text-lg italic"><img src="/pebble.svg" alt="" className="h-8 w-8" />Pathmates</span>
         {step > 0 && !done && (
-          <div className="flex gap-1.5" aria-label={`Step ${step} of ${total - 1}`}>
-            {Array.from({ length: total - 1 }).map((_, i) => (
-              <span key={i} className={`h-1.5 w-6 rounded-full ${i < step ? "bg-primary" : "bg-border"}`} />
-            ))}
+          <div className="flex items-center gap-3" role="img" aria-label={`Step ${step} of ${total - 1}`}>
+            <span className="text-xs tabular-nums text-muted-foreground">{step} of {total - 1}</span>
+            <div className="flex gap-1.5">
+              {Array.from({ length: total - 1 }).map((_, i) => (
+                <span key={i} className={`progress-dot h-1.5 w-6 rounded-full ${i < step ? "bg-primary" : "bg-border"}`} />
+              ))}
+            </div>
           </div>
         )}
       </header>
@@ -150,44 +179,52 @@ function Onboarding() {
             </button>
           </div>
         ) : step === 1 ? (
-          <Question title="What type of cancer are you navigating?" cols={2}>
+          <Question title="What type of cancer are you navigating?" hint="Pick the closest match. You can skip this." cols={2}>
             {CANCER.map((c) => <Choice key={c} label={c} selected={a.cancer === c} onClick={() => pick("cancer", c)} wide={c === CANCER[CANCER.length - 1]} />)}
           </Question>
         ) : step === 2 ? (
-          <Question title="How old are you?" cols={2}>
+          <Question title="How old are you?" hint="Only used to find stories from people at a similar stage of life." cols={2}>
             {AGES.map((c) => <Choice key={c} label={c} selected={a.age === c} onClick={() => pick("age", c)} />)}
           </Question>
         ) : step === 3 ? (
-          <Question title="Where are you right now?">
+          <Question title="Where are you right now?" hint="There’s no wrong answer.">
             {STAGE.map((c) => <Choice key={c} label={c} selected={a.stage === c} onClick={() => pick("stage", c)} />)}
           </Question>
         ) : step === 4 ? (
-          <Question title="What’s most on your mind today?">
+          <Question title="What’s most on your mind today?" hint="Choose whatever feels heaviest right now.">
             {TOPICS.map((c) => <Choice key={c} label={c} selected={a.topic === c} onClick={() => pick("topic", c)} />)}
           </Question>
         ) : step === 5 ? (
           <div>
             <h1 className="text-3xl leading-snug">Tell us what’s happening and what you’d like to hear from someone who has been there.</h1>
-            {mode === "choose" ? (
-              <div className="mt-8 grid grid-cols-2 gap-3">
-                <button onClick={startRecording} className="press rounded-2xl bg-primary p-6 text-primary-foreground hover:opacity-90">
-                  <div className="mx-auto mb-2 h-3 w-3 rounded-full bg-primary-foreground" />Record
+            <p className="mt-3 text-muted-foreground">Take your time. Speak or type, whichever feels easier.</p>
+
+            <div className="mt-8 flex flex-col items-center gap-3">
+              <button
+                type="button"
+                onClick={recording ? stopRecording : startRecording}
+                disabled={transcribing}
+                aria-label={recording ? "Stop recording" : "Start recording"}
+                className={`mic press ${recording ? "mic-live" : ""}`}
+              >
+                {recording ? <span className="mic-stop" aria-hidden="true" /> : <MicIcon />}
+              </button>
+              <p className="min-h-6 text-sm text-muted-foreground" role="status" aria-live="polite">
+                {recording ? <>Listening <span className="tabular-nums">{clock}</span> · tap to finish</>
+                  : transcribing ? "Writing down what you said…"
+                  : mode === "choose" ? "Tap to speak"
+                  : "Tap to add more"}
+              </p>
+              {mode === "choose" && (
+                <button type="button" onClick={() => setMode("type")} className="press text-sm underline underline-offset-4 hover:text-foreground">
+                  I’d rather type
                 </button>
-                <button onClick={() => setMode("type")} className="press rounded-2xl border border-border bg-card p-6 hover:bg-accent/40">
-                  Type instead
-                </button>
-              </div>
-            ) : (
-              <div className="mt-6 flex items-center gap-3">
-                {recording ? (
-                  <button onClick={stopRecording} className="press flex items-center gap-2 rounded-full bg-destructive px-5 py-2.5 text-sm text-destructive-foreground">
-                    <span className="h-2 w-2 animate-pulse rounded-full bg-destructive-foreground" />Listening — tap to stop
-                  </button>
-                ) : (
-                  <button onClick={startRecording} className="press rounded-full border border-border px-5 py-2.5 text-sm">Record more</button>
-                )}
-              </div>
-            )}
+              )}
+            </div>
+            <p className="mt-3 text-center text-sm text-muted-foreground">
+              If you record, your audio is sent to Meta for transcription. You can review and edit the text before continuing.
+            </p>
+            {micError && <p className="mt-3 text-center text-sm text-destructive" role="alert">{micError}</p>}
 
             <p className="mt-7 text-sm font-medium text-muted-foreground">{promptIntro}</p>
             <div className="mt-3 grid gap-2.5">
@@ -215,7 +252,7 @@ function Onboarding() {
                 />
                 <button
                   onClick={goReview}
-                  disabled={!a.story.trim() || recording}
+                  disabled={!a.story.trim() || recording || transcribing}
                   className="mt-6 rounded-full bg-primary px-8 py-3.5 font-medium text-primary-foreground transition hover:opacity-90 disabled:opacity-40"
                 >
                   Continue
@@ -227,6 +264,18 @@ function Onboarding() {
           <div>
             <h1 className="text-3xl">Here’s what we understood.</h1>
             <p className="mt-3 text-muted-foreground">Edit anything that doesn’t feel right.</p>
+            <div className="mt-5 flex flex-wrap gap-2">
+              {([["cancer", 1], ["age", 2], ["stage", 3], ["topic", 4]] as const).map(([k, s]) => (
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() => setStep(s)}
+                  className="press rounded-full border border-border bg-card px-4 py-1.5 text-sm hover:border-primary/50"
+                >
+                  {a[k] ?? "Skipped"} <span className="ml-1 text-muted-foreground">Change</span>
+                </button>
+              ))}
+            </div>
             <textarea
               value={summary}
               onChange={(e) => setSummary(e.target.value)}
@@ -241,17 +290,26 @@ function Onboarding() {
       </section>
 
       {step > 0 && !done && (
-        <footer className="mt-10 flex justify-between text-sm text-muted-foreground">
-          <button onClick={back} className="hover:text-foreground">← Back</button>
-          {step >= 1 && step <= 4 && <button onClick={next} className="hover:text-foreground">Skip</button>}
+        <footer className="sticky-bar -mx-6 mt-10 flex items-center justify-between px-6 py-4 text-sm">
+          <button onClick={back} className="press -ml-3 rounded-full px-3 py-2 text-muted-foreground hover:text-foreground">← Back</button>
+          {step >= 1 && step <= 4 && <button onClick={next} className="press -mr-3 rounded-full px-3 py-2 text-muted-foreground hover:text-foreground">Skip</button>}
         </footer>
       )}
     </main>
   );
 }
 
+function MicIcon() {
+  return (
+    <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="9" y="3" width="6" height="11" rx="3" />
+      <path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3" />
+    </svg>
+  );
+}
+
 function Results({ summary, answers, onHear, onEdit }: { summary: string; answers: Answers; onHear: (h: Hear) => void; onEdit: () => void }) {
-  const matches = rankStories({ cancer: answers.cancer, stage: answers.stage, topic: answers.topic, hear: answers.hear, text: answers.story }, 3);
+  const matches = rankStories({ ...answers, text: answers.story }, 3);
   return (
     <div>
       <div className="flex items-start gap-4">
@@ -317,10 +375,11 @@ function Results({ summary, answers, onHear, onEdit }: { summary: string; answer
   );
 }
 
-function Question({ title, children, cols = 1 }: { title: string; children: React.ReactNode; cols?: number }) {
+function Question({ title, hint, children, cols = 1 }: { title: string; hint?: string; children: React.ReactNode; cols?: number }) {
   return (
     <div>
       <h1 className="text-3xl leading-snug">{title}</h1>
+      {hint && <p className="mt-3 text-muted-foreground">{hint}</p>}
       <div className={`mt-8 grid gap-3 ${cols === 2 ? "sm:grid-cols-2" : ""}`}>{children}</div>
     </div>
   );

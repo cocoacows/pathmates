@@ -40,3 +40,11 @@ cd <repository-name>
 npm i
 npm run dev
 ```
+
+## Voice transcription
+
+The Record button sends a WAV recording to the app's server after the visitor stops speaking. The server sends it to [Meta Muse Voice Transcribe](https://dev.meta.ai/docs/speech-to-text) and returns editable text. Recordings are not saved by this app.
+
+Create a Meta Model API key in the [Meta dashboard](https://dev.meta.ai/). Set it as the server-side secret `MODEL_API_KEY` in the environment hosting this app. For local development, put `MODEL_API_KEY=...` in an untracked `.env.local` file. The optional `ASR_MODEL` setting defaults to `muse-voice-transcribe-1.0`. Never use a `VITE_` prefix for the key.
+
+Without the key, the recording route returns a setup message and visitors can still type their story.
