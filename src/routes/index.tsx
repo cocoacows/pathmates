@@ -21,7 +21,9 @@ const CANCER = ["Breast", "Lung", "Prostate", "Colorectal", "Blood (leukemia, ly
 const STAGE = ["Newly diagnosed", "Considering treatment", "In treatment", "After treatment", "Facing a recurrence"];
 const TOPICS = ["Treatment", "Side effects", "Family", "Work", "Relationships", "Uncertainty", "Something else"];
 
-type Answers = { cancer?: string; stage?: string; topic?: string; hear?: Hear; story: string };
+const AGES = ["18–29", "30–39", "40–49", "50–59", "60–69", "70 or older"];
+
+type Answers = { cancer?: string; age?: string; stage?: string; topic?: string; hear?: Hear; story: string };
 
 function Choice({ label, selected, onClick, wide }: { label: string; selected: boolean; onClick: () => void; wide?: boolean }) {
   return (
@@ -75,7 +77,7 @@ function Onboarding() {
   const recRef = useRef<any>(null);
   const baseRef = useRef("");
 
-  const total = 6;
+  const total = 7;
   const next = () => setStep((s) => Math.min(s + 1, total - 1));
   const back = () => setStep((s) => Math.max(s - 1, 0));
   const pick = (k: keyof Answers, v: string) => {
@@ -101,16 +103,16 @@ function Onboarding() {
   };
   const stopRecording = () => { recRef.current?.stop(); setRecording(false); };
 
-  const { prompts, showHear } = getStarters(a.stage, a.topic);
+  const { prompts } = getStarters(a.stage, a.topic);
   const promptIntro =
     a.topic && a.topic !== "Something else"
       ? `You said ${a.topic.toLowerCase()} is on your mind. Try starting with:`
       : "Try starting with:";
 
-  const addPrompt = (p: string, hear?: Hear) => {
+  const addPrompt = (p: string) => {
     const nextText = a.story.trim() ? `${a.story.trim()} ${p}` : p;
     baseRef.current = nextText + " ";
-    setA((prev) => ({ ...prev, story: nextText, ...(hear ? { hear } : {}) }));
+    setA((prev) => ({ ...prev, story: nextText }));
   };
 
   const goReview = () => { setSummary(buildSummary(a)); next(); };
@@ -152,76 +154,57 @@ function Onboarding() {
             {CANCER.map((c) => <Choice key={c} label={c} selected={a.cancer === c} onClick={() => pick("cancer", c)} wide={c === CANCER[CANCER.length - 1]} />)}
           </Question>
         ) : step === 2 ? (
+          <Question title="How old are you?" cols={2}>
+            {AGES.map((c) => <Choice key={c} label={c} selected={a.age === c} onClick={() => pick("age", c)} />)}
+          </Question>
+        ) : step === 3 ? (
           <Question title="Where are you right now?">
             {STAGE.map((c) => <Choice key={c} label={c} selected={a.stage === c} onClick={() => pick("stage", c)} />)}
           </Question>
-        ) : step === 3 ? (
+        ) : step === 4 ? (
           <Question title="What’s most on your mind today?">
             {TOPICS.map((c) => <Choice key={c} label={c} selected={a.topic === c} onClick={() => pick("topic", c)} />)}
           </Question>
-        ) : step === 4 ? (
+        ) : step === 5 ? (
           <div>
             <h1 className="text-3xl leading-snug">Tell us what’s happening and what you’d like to hear from someone who has been there.</h1>
             {mode === "choose" ? (
-              <>
-                <p className="mt-4 text-muted-foreground italic">For example: “I start treatment next week, and I’m worried about caring for my kids.”</p>
-                <div className="mt-8 grid grid-cols-2 gap-3">
-                  <button onClick={startRecording} className="rounded-2xl bg-primary p-6 text-primary-foreground transition hover:opacity-90">
-                    <div className="mx-auto mb-2 h-3 w-3 rounded-full bg-primary-foreground" />Record
-                  </button>
-                  <button onClick={() => setMode("type")} className="rounded-2xl border border-border bg-card p-6 transition hover:bg-accent/40">
-                    Type instead
-                  </button>
-                </div>
-              </>
+              <div className="mt-8 grid grid-cols-2 gap-3">
+                <button onClick={startRecording} className="press rounded-2xl bg-primary p-6 text-primary-foreground hover:opacity-90">
+                  <div className="mx-auto mb-2 h-3 w-3 rounded-full bg-primary-foreground" />Record
+                </button>
+                <button onClick={() => setMode("type")} className="press rounded-2xl border border-border bg-card p-6 hover:bg-accent/40">
+                  Type instead
+                </button>
+              </div>
             ) : (
+              <div className="mt-6 flex items-center gap-3">
+                {recording ? (
+                  <button onClick={stopRecording} className="press flex items-center gap-2 rounded-full bg-destructive px-5 py-2.5 text-sm text-destructive-foreground">
+                    <span className="h-2 w-2 animate-pulse rounded-full bg-destructive-foreground" />Listening — tap to stop
+                  </button>
+                ) : (
+                  <button onClick={startRecording} className="press rounded-full border border-border px-5 py-2.5 text-sm">Record more</button>
+                )}
+              </div>
+            )}
+
+            <p className="mt-7 text-sm font-medium text-muted-foreground">{promptIntro}</p>
+            <div className="mt-3 grid gap-2.5">
+              {prompts.map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => { addPrompt(p); if (mode === "choose") setMode("type"); }}
+                  className="press rounded-2xl border border-border bg-card px-5 py-3.5 text-left text-base leading-snug hover:border-primary/50 hover:bg-accent/40"
+                >
+                  {p}
+                </button>
+              ))}
+            </div>
+
+            {mode !== "choose" && (
               <>
-                  <div className="mt-6">
-                    <div className="flex items-center gap-3">
-                      {recording ? (
-                        <button onClick={stopRecording} className="flex items-center gap-2 rounded-full bg-destructive px-5 py-2.5 text-sm text-destructive-foreground">
-                          <span className="h-2 w-2 animate-pulse rounded-full bg-destructive-foreground" />Listening — tap to stop
-                        </button>
-                      ) : (
-                        <button onClick={startRecording} className="rounded-full border border-border px-5 py-2.5 text-sm">Record more</button>
-                      )}
-                    </div>
-                    <p className="mt-7 text-sm font-medium text-muted-foreground">{promptIntro}</p>
-                    <div className="mt-3 grid gap-2.5">
-                      {prompts.map((p) => (
-                        <button
-                          key={p}
-                          type="button"
-                          onClick={() => addPrompt(p)}
-                          className="rounded-2xl border border-border bg-card px-5 py-3.5 text-left text-base leading-snug transition hover:border-primary/50 hover:bg-accent/40"
-                        >
-                          {p}
-                        </button>
-                      ))}
-                    </div>
-                    {showHear && (
-                      <>
-                        <p className="mt-6 text-sm font-medium text-muted-foreground">And what would help most to hear?</p>
-                        <div className="mt-3 flex flex-wrap gap-2.5">
-                          {HEAR_OPTIONS.map((h) => (
-                            <button
-                              key={h.key}
-                              type="button"
-                              aria-pressed={a.hear === h.key}
-                              onClick={() => addPrompt(h.starter, h.key)}
-                              className={`rounded-full border px-5 py-2.5 text-base transition ${
-                                a.hear === h.key
-                                  ? "border-primary bg-primary text-primary-foreground"
-                                  : "border-border bg-card hover:border-primary/50 hover:bg-accent/40"
-                              }`}
-                            >
-                              {h.label}
-                            </button>
-                          ))}
-                        </div>
-                      </>
-                    )}
-                  </div>
                 <textarea
                   autoFocus={mode === "type"}
                   value={a.story}
@@ -260,7 +243,7 @@ function Onboarding() {
       {step > 0 && !done && (
         <footer className="mt-10 flex justify-between text-sm text-muted-foreground">
           <button onClick={back} className="hover:text-foreground">← Back</button>
-          {step >= 1 && step <= 3 && <button onClick={next} className="hover:text-foreground">Skip</button>}
+          {step >= 1 && step <= 4 && <button onClick={next} className="hover:text-foreground">Skip</button>}
         </footer>
       )}
     </main>
