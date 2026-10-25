@@ -1,0 +1,145 @@
+@import "tailwindcss" source(none);
+@source "../src";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --font-display: "Fraunces", Georgia, serif;
+  --font-sans: "Figtree", system-ui, sans-serif;
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+}
+
+:root {
+  --radius: 1rem;
+  --background: oklch(0.975 0.012 80);
+  --foreground: oklch(0.28 0.025 60);
+  --card: oklch(0.993 0.006 80);
+  --card-foreground: oklch(0.28 0.025 60);
+  --popover: oklch(0.993 0.006 80);
+  --popover-foreground: oklch(0.28 0.025 60);
+  --primary: oklch(0.47 0.06 160);
+  --primary-foreground: oklch(0.98 0.01 80);
+  --secondary: oklch(0.94 0.02 80);
+  --secondary-foreground: oklch(0.32 0.03 60);
+  --muted: oklch(0.94 0.015 80);
+  --muted-foreground: oklch(0.52 0.025 60);
+  --accent: oklch(0.9 0.045 160);
+  --accent-foreground: oklch(0.3 0.05 160);
+  --destructive: oklch(0.6 0.16 30);
+  --destructive-foreground: oklch(0.98 0.01 80);
+  --border: oklch(0.89 0.02 75);
+  --input: oklch(0.89 0.02 75);
+  --ring: oklch(0.47 0.06 160);
+}
+
+@layer base {
+  * { border-color: var(--color-border); }
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    background-image: radial-gradient(ellipse at top, oklch(0.93 0.04 160 / 0.5), transparent 60%);
+    min-height: 100vh;
+  }
+  h1, h2 { font-family: var(--font-display); }
+}
+
+:root {
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+@keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.animate-rise { animation: rise 320ms var(--ease-out) both; }
+.stagger { animation: rise 320ms var(--ease-out) both; }
+
+/* Pressable feedback: transform only, short, ease-out */
+.press { transition: transform 160ms var(--ease-out), opacity 160ms ease, background-color 160ms ease, border-color 160ms ease; }
+.press:active { transform: scale(0.97); }
+.chip { transition-property: transform, background-color, border-color, color; }
+
+.story-card { transition: border-color 200ms ease, transform 200ms var(--ease-out); }
+@media (hover: hover) and (pointer: fine) {
+  .story-card:hover { border-color: color-mix(in oklch, var(--primary) 40%, var(--border)); transform: translateY(-2px); }
+}
+
+/* Type: tighter tracking and leading as size grows */
+h1 { letter-spacing: -0.02em; line-height: 1.15; font-optical-sizing: auto; }
+h2 { letter-spacing: -0.015em; }
+.progress-dot { transition: background-color 240ms ease; }
+
+/* Record button: the one primary action on the recording step */
+.mic {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 96px;
+  height: 96px;
+  border-radius: 9999px;
+  border: 0;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  box-shadow: 0 8px 24px color-mix(in oklch, var(--primary) 30%, transparent);
+}
+.mic:disabled { opacity: 0.5; }
+.mic::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  border: 2px solid var(--primary);
+  opacity: 0;
+  pointer-events: none;
+}
+.mic-live { background: var(--destructive); box-shadow: 0 8px 24px color-mix(in oklch, var(--destructive) 30%, transparent); }
+.mic-live::after { border-color: var(--destructive); animation: ring 1.8s var(--ease-out) infinite; }
+.mic-stop { width: 26px; height: 26px; border-radius: 7px; background: var(--primary-foreground); }
+@keyframes ring { from { opacity: 0.5; transform: scale(1); } to { opacity: 0; transform: scale(1.5); } }
+
+/* Back / Skip bar: translucent so content scrolls underneath */
+.sticky-bar {
+  position: sticky;
+  bottom: 0;
+  background: color-mix(in oklch, var(--background) 72%, transparent);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  backdrop-filter: blur(16px) saturate(160%);
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .sticky-bar { background: var(--background); -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
+@media (prefers-contrast: more) {
+  :root { --muted-foreground: oklch(0.38 0.03 60); --border: oklch(0.7 0.03 75); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mic-live::after { animation: none; }
+  .animate-rise, .stagger { animation: fade 200ms ease both; }
+  .story-card:hover { transform: none; }
+  .press:active { transform: none; }
+}
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
