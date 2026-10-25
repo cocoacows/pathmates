@@ -1,91 +1,65 @@
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
 import java.io.OutputStream;
-
-import org.json.JSONException;
+import java.nio.charset.StandardCharsets;
+import java.util.concurrent.ConcurrentHashMap;
 import org.json.JSONObject;
-import org.json.JSONTokener;
-
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 
-public abstract class APIHandler implements HttpHandler
-{
+public abstract class APIHandler implements HttpHandler {
+    private static final int MAX_AUDIO_BYTES = 37_000_000;
+    private static final int MAX_TEXT_BYTES = 100_000;
+    private static final ConcurrentHashMap<String, Window> windows = new ConcurrentHashMap<>();
 
-	public void handle(HttpExchange exchange) throws IOException
-	{
-		BufferedReader reader = new BufferedReader(new InputStreamReader(exchange.getRequestBody()));
-		StringBuilder builder = new StringBuilder();
+    private static class Window {
+        volatile long startsAt = System.currentTimeMillis();
+        int count = 0;
+        synchronized boolean allow(int max, long duration) {
+            long now = System.currentTimeMillis();
+            if (now - startsAt >= duration) { startsAt = now; count = 0; }
+            return ++count <= max;
+        }
+    }
 
-		String ln = reader.readLine();
-		while(ln != null)
-		{
-			builder.append(ln);
-			builder.append("\n");
+    private static boolean rateLimited(HttpExchange exchange) {
+        String path = exchange.getRequestURI().getPath();
+        int max;
+        long duration;
+        if (path.startsWith("/api/admin/")) { max = 20; duration = 60_000; }
+        else if (path.equals("/api/stories/submit")) { max = 50; duration = 3_600_000; }
+        else if (path.equals("/api/submitSurvey")) { max = 200; duration = 3_600_000; }
+        else return false;
+        String key = path + ":" + exchange.getRemoteAddress().getAddress().getHostAddress();
+        if (windows.size() > 10_000) windows.entrySet().removeIf(entry -> System.currentTimeMillis() - entry.getValue().startsAt > 3_600_000);
+        return !windows.computeIfAbsent(key, ignored -> new Window()).allow(max, duration);
+    }
 
-			ln = reader.readLine();
-		}
-		
-		JSONTokener tokenizer = new JSONTokener(builder.toString());
-		JSONObject object = null;
-		try
-		{
-			object = new JSONObject(tokenizer);
-		} 
-		catch (JSONException e)
-		{
-			e.printStackTrace();
-		}
-		
-		JSONObject response = handleAPICallWrapper(object);
-		String responseString = response.toString();
-		exchange.sendResponseHeaders(response.getInt("response"), responseString.getBytes().length);
-		
-		try (OutputStream os = exchange.getResponseBody()) 
-		{
-			os.write(responseString.getBytes());
-			os.close();
-		}
-		catch(IOException e)
-		{
-			e.printStackTrace();
-		}
-	}
-	
-	private JSONObject handleAPICallWrapper(JSONObject JSON)
-	{
-		if(JSON == null)
-			return nullResponse();
+    public void handle(HttpExchange exchange) throws IOException {
+        JSONObject response;
+        if (!"POST".equals(exchange.getRequestMethod())) {
+            response = error(405, "Use POST.");
+        } else if (rateLimited(exchange)) {
+            response = error(429, "Too many requests. Please try again later.");
+        } else {
+            try {
+                int limit = "/api/transcribe".equals(exchange.getRequestURI().getPath()) ? MAX_AUDIO_BYTES : MAX_TEXT_BYTES;
+                byte[] body = exchange.getRequestBody().readNBytes(limit + 1);
+                if (body.length > limit) response = error(413, "Request is too large.");
+                else response = handleAPICall(new JSONObject(new String(body, StandardCharsets.UTF_8)));
+            } catch (Exception e) {
+                response = error(400, "Invalid JSON request.");
+            }
+        }
+        byte[] output = response.toString().getBytes(StandardCharsets.UTF_8);
+        exchange.getResponseHeaders().set("Content-Type", "application/json; charset=UTF-8");
+        exchange.getResponseHeaders().set("Cache-Control", "no-store");
+        exchange.sendResponseHeaders(response.optInt("response", 500), output.length);
+        try (OutputStream out = exchange.getResponseBody()) { out.write(output); }
+    }
 
-		try 
-		{ 
-			return handleAPICall(JSON);
-		} 
-		catch (JSONException e)
-		{ 
-			return badResponse();
-		}
-	}
-	
-	public abstract JSONObject handleAPICall(JSONObject JSON);
-	
-	protected JSONObject nullResponse()
-	{
-		JSONObject response = new JSONObject();
-		response.put("response", 400);
-		response.put("successful", false);
-		response.put("response-text", "Invalid JSON Request");
-		return response;
-	}
-	
-	private JSONObject badResponse()
-	{
-		JSONObject response = new JSONObject();
-		response.put("response", 400);
-		response.put("successful", false);
-		response.put("response-text", "Bad request");
-		return response;
-	}
+    public abstract JSONObject handleAPICall(JSONObject json);
+
+    private static JSONObject error(int status, String message) {
+        return new JSONObject().put("response", status).put("successful", false).put("response-text", message);
+    }
 }
-

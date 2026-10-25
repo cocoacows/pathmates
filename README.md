@@ -1,50 +1,39 @@
-# Cancer Story Finder
+# Pathmates
 
-I want to start an onboarding flow for a website: First onboarding flow
+Pathmates is a hackathon website for finding patient stories and sharing one of your own. The Java server serves the teammate's three-file frontend in `server/websiteFiles`.
 
-Set the expectation
-“Let’s find a story that feels relevant to you. Share only what you’re comfortable with. Your answers stay private unless you later choose to share your story.”
+## Run locally
 
-Ask three short questions
-
-“What type of cancer are you navigating?” Include “I’m not sure yet” and “Skip.”
-
-“Where are you right now?” Options could include newly diagnosed, considering treatment, in treatment, after treatment, or facing a recurrence.
-
-“What’s most on your mind today?” Let them choose a topic such as treatment, side effects, family, work, relationships, or uncertainty, with “Something else” available.
-
-Invite their voice or text
-“Tell us what’s happening and what you’d like to hear from someone who has been there.”
-Give them Record and Type instead choices. A gentle example could be: “I start treatment next week, and I’m worried about caring for my kids.”
-
-Let them check what the app understood
-Show a short, editable version: “Starting treatment; looking for stories about parenting during treatment.” Then offer Find stories.
-
-This project was built with [Lovable](https://lovable.dev).
-
-## Build with Lovable
-
-Continue developing this project in the [Lovable editor](https://lovable.dev/projects/63b4586f-d391-5a06-a24d-2f30fe1dcfd2).
-
-- **Ship faster**: describe what you want to build and Lovable handles the code.
-- **Stay in sync**: every change made in Lovable is committed straight to this repository.
-- **Full ownership**: this code is yours. Push to `main` on GitHub and your changes sync back into Lovable, ready for your next prompt.
-
-## Development
-
-Prefer working locally? You need Node.js and npm — [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating).
+Install JDK 21. From `server`, compile and run:
 
 ```sh
-git clone <this-repository-url>
-cd <repository-name>
-npm i
-npm run dev
+mkdir -p build/classes
+javac -d build/classes src/*.java src/org/json/*.java
+java -cp build/classes WebServer
 ```
 
-## Voice transcription
+Visit `http://localhost:8080`. Set `PORT` to change the listener. Set a randomly generated `ADMIN_PASSCODE` of at least 24 characters before starting the server to enable review at `/admin`. Admin and submission requests have basic rate limits.
 
-The Record button sends a WAV recording to the app's server after the visitor stops speaking. The server sends it to [Meta Muse Voice Transcribe](https://dev.meta.ai/docs/speech-to-text) and returns editable text. Recordings are not saved by this app.
+The flow asks shared triage questions, then branches into **Find a story** or **Share my story**. A browser session receives a token from `POST /api/submitSurvey`. The browser sends that token with transcription, categorization, story, and review requests. `POST /api/transcript` accepts `{ "session-token": "...", "transcript": "..." }` and returns `categories`. Those categories suggest matches and aid review; the patient's triage choices and edited story remain the source of truth.
 
-Create a Meta Model API key in the [Meta dashboard](https://dev.meta.ai/). Set it as the server-side secret `MODEL_API_KEY` in the environment hosting this app. For local development, put `MODEL_API_KEY=...` in an untracked `.env.local` file. The optional `ASR_MODEL` setting defaults to `muse-voice-transcribe-1.0`. Never use a `VITE_` prefix for the key.
+`MODEL_API_KEY` enables Meta transcription. `OPENAI_API_KEY` enables categorization and optional AI drafting. Without them, patients can still type, edit, submit, and find stories. See `.env.example` for configuration.
 
-Without the key, the recording route returns a setup message and visitors can still type their story.
+Submitted stories stay pending until a team reviewer approves them. Approved stories appear in Find a story; fictional examples are labeled **Sample story**. The author can indicate an interest in helping others later, but this version has no contact, email, or messaging feature. The queue and approvals live in memory and disappear when the server restarts. Pending stories expire after 24 hours; the queue holds up to 100 pending stories and retains the 200 most recently approved stories.
+
+## Deploy
+
+The root `Dockerfile` builds the Java service and includes ffmpeg for recordings. It can be deployed as a free Render web service using the Docker runtime. Configure `ADMIN_PASSCODE` and any provider keys as service environment variables. A free service may restart, clearing submissions and approvals; bundled sample stories remain.
+
+## Verify
+
+Run the server API tests from the repository root with Python 3 and JDK 21:
+
+```sh
+PATHMATES_JAVA_HOME=/path/to/jdk-21 python3 server/tests/test_story_api.py -v
+node --test server/tests/test_frontend.mjs
+mkdir -p server/build/classes
+javac -d server/build/classes server/src/*.java server/src/org/json/*.java server/tests/StoryStoreCapacityTest.java
+java -cp server/build/classes StoryStoreCapacityTest
+```
+
+The API tests start a local server on port 18183. The frontend tests use Node's built-in test runner and do not require a JavaScript build step.

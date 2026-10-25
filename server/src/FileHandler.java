@@ -1,59 +1,31 @@
-
-import java.io.BufferedReader;
 import java.io.File;
-import java.io.FileReader;
 import java.io.IOException;
 import java.io.OutputStream;
-import java.util.HashMap;
-
+import java.nio.file.Files;
 import com.sun.net.httpserver.HttpExchange;
 
-public class FileHandler implements Handler
-{
-	public static final FileHandler NOTFOUND = new FileHandler(new File("websiteFiles/errorPages/notFound.html"));
-	
-	private HashMap<String, String> endpointContentTypes;
-	{
-		endpointContentTypes = new HashMap<>();
-		endpointContentTypes.put(".css", "text/css");
-		endpointContentTypes.put(".js", "text/javascript");
-		endpointContentTypes.put(".html", "text/html");
-	}
-	
-	private File file;
-	public FileHandler(File linkedFile)
-	{
-		file = linkedFile;
-	}
-	
-	public void handle(HttpExchange exchange) throws IOException
-	{
-		System.out.println("|---- Got FileHandler request [" + exchange.getRequestURI().getPath() + "] sending file [" + file.getPath() + "]");
-		
-		StringBuilder builder = new StringBuilder();
-		try (BufferedReader contentReader = new BufferedReader(new FileReader(file))) 
-		{
-			String line;
-			while ((line = contentReader.readLine()) != null)
-				builder.append(line).append("\n");
-		}
-		catch(IOException e) {WebServer.showError("IOException", "Error when reading file /" + file.getName() + " - \"" + e.getMessage() + "\"");}
+public class FileHandler implements Handler {
+    private final File file;
+    public FileHandler(File file) { this.file = file; }
 
-		String content = builder.toString();
-		
-		String fileType = file.getName().substring(file.getName().indexOf("."));
-		
-		if(endpointContentTypes.get(fileType) != null)
-			exchange.getResponseHeaders().set("Content-Type", endpointContentTypes.get(fileType) + "; charset=UTF-8");
-		exchange.getResponseHeaders().set("Cache-Control", "no-store");
-		
-		exchange.sendResponseHeaders(200, content.getBytes().length);
-
-		try (OutputStream os = exchange.getResponseBody()) 
-		{
-			os.write(content.getBytes());
-			os.close();
-		}
-		catch(IOException e) {WebServer.showError("IOException", "Error when outputing response to file request /" + file.getName() + " - \"" + e.getMessage() + "\"");}
-	}
+    public void handle(HttpExchange exchange) throws IOException {
+        if (!"GET".equals(exchange.getRequestMethod()) && !"HEAD".equals(exchange.getRequestMethod())) {
+            exchange.sendResponseHeaders(405, -1);
+            return;
+        }
+        if (!file.isFile()) {
+            exchange.sendResponseHeaders(404, -1);
+            return;
+        }
+        String name = file.getName();
+        String type = name.endsWith(".css") ? "text/css" : name.endsWith(".js") ? "text/javascript" : name.endsWith(".ico") ? "image/x-icon" : "text/html";
+        byte[] content = Files.readAllBytes(file.toPath());
+        exchange.getResponseHeaders().set("Content-Type", type + (type.startsWith("text/") ? "; charset=UTF-8" : ""));
+        exchange.getResponseHeaders().set("Cache-Control", "no-store");
+        exchange.getResponseHeaders().set("X-Content-Type-Options", "nosniff");
+        exchange.sendResponseHeaders(200, content.length);
+        if (!"HEAD".equals(exchange.getRequestMethod())) {
+            try (OutputStream out = exchange.getResponseBody()) { out.write(content); }
+        }
+    }
 }
