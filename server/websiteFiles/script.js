@@ -242,6 +242,21 @@
 
   const state = {
     step: 0,
+    path: "find",
+    promptIndex: 0,
+    promptAnswers: [],
+    finalStory: "",
+    storyTitle: "",
+    storyAuthor: "",
+    openToHelp: false,
+    approvedStories: [],
+    categories: {},
+    findCategories: {},
+    status: "",
+    busy: false,
+    expandedStoryId: "",
+    adminPasscode: "",
+    pendingStories: [],
     answers: { story: "" },
     mode: "choose",
     recording: false,
@@ -266,6 +281,67 @@
     })[char]);
   }
 
+  const tokenKey = "pathmates-session-token";
+  let token = sessionStorage.getItem(tokenKey) || "";
+  let tokenForSurvey = sessionStorage.getItem("pathmates-survey") || "";
+  function surveyPayload() {
+    return { "cancer-type": state.answers.cancer || "", "cancer-stage": state.answers.stage || "", "mind-state": state.answers.topic || "", "age-band": state.answers.age || "" };
+  }
+  async function api(path, payload = {}, retry = true) {
+    let response;
+    try {
+      response = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    } catch { throw new Error("Couldn’t connect to Pathmates. Please try again."); }
+    const data = await response.json().catch(() => ({}));
+    if (response.status === 401 && retry && path !== "/api/submitSurvey" && payload["session-token"]) {
+      token = "";
+      sessionStorage.removeItem(tokenKey);
+      return api(path, { ...payload, "session-token": await ensureToken() }, false);
+    }
+    if (!response.ok || data.successful === false) throw new Error(data["response-text"] || "Something went wrong. Please try again.");
+    return data;
+  }
+  async function ensureToken() {
+    const survey = surveyPayload();
+    const fingerprint = JSON.stringify(survey);
+    if (token && tokenForSurvey === fingerprint) return token;
+    const data = await api("/api/submitSurvey", survey);
+    token = data["session-token"];
+    if (!token) throw new Error("The server did not return a session token.");
+    tokenForSurvey = fingerprint;
+    sessionStorage.setItem(tokenKey, token);
+    sessionStorage.setItem("pathmates-survey", fingerprint);
+    return token;
+  }
+  async function loadApprovedStories() {
+    try {
+      const data = await api("/api/stories/list", { "session-token": await ensureToken() });
+      state.approvedStories = Array.isArray(data.stories) ? data.stories : [];
+      if (state.done) render();
+    } catch (error) { state.status = error.message; if (state.done) render(); }
+  }
+  async function findStories() {
+    if (!state.summary.trim()) return;
+    state.status = "";
+    state.done = true;
+    render();
+    window.scrollTo(0, 0);
+    void loadApprovedStories();
+    if (state.answers.story.trim()) {
+      try {
+        const data = await api("/api/transcript", { "session-token": await ensureToken(), transcript: state.answers.story });
+        state.findCategories = data.categories || {};
+        render();
+      } catch { /* Triage and text matching remain available without AI. */ }
+    }
+  }
+  function guidedPrompts() {
+    const chosen = starters(state.answers.stage, state.answers.topic);
+    return [...chosen, "What helped you through this, or what would you want someone else to know?"];
+  }
+  function assembledStory() {
+    return state.promptAnswers.map((answer) => answer?.trim()).filter(Boolean).join("\n\n");
+  }
   function starters(stage, topic) {
     if (topic && BY_TOPIC[topic]) {
       if (stage && BY_STAGE_TOPIC[stage]) return BY_STAGE_TOPIC[stage][topic];
@@ -316,17 +392,27 @@
     candid: "Candid, as you asked",
   };
 
-  function detectThemes(topic, text) {
+  function detectThemes(topic, text, categories = {}) {
     const t = text.toLowerCase();
     const found = THEME_PATTERNS.filter(([, re]) => re.test(t)).map(([key]) => key);
     if (topic && topic !== "Something else") found.push(topic.toLowerCase());
+    for (const value of Object.values(categories)) {
+      if (Array.isArray(value)) found.push(...value);
+    }
     return [...new Set(found)];
   }
 
   function rankStories(input, limit = 3) {
-    const themes = detectThemes(input.topic, input.story);
+    const themes = detectThemes(input.topic, input.story, input.categories);
     const cancerKey = input.cancer?.split(" ")[0];
-    return STORIES.map((story) => {
+    const sharedStories = state.approvedStories.map((item) => ({
+      id: item.id, title: item.title, author: item.author,
+      cancer: item.cancer || "", stage: item.stage || "Shared experience",
+      themes: [...new Set([...Object.values(item.categories || {}).filter(Array.isArray).flat(), (item.topic || "").toLowerCase()].filter(Boolean))],
+      style: "", excerpt: item.text.slice(0, 220), text: item.text,
+      minutes: Math.max(1, Math.ceil(item.text.split(/\s+/).length / 200)), sample: false,
+    }));
+    return [...sharedStories, ...STORIES.map((item) => ({ ...item, sample: true }))].map((story) => {
       const reasons = [];
       let score = 0;
       if (input.stage && story.stage === input.stage) {
@@ -401,7 +487,7 @@
   }
 
   function resultsHtml() {
-    const matches = rankStories(state.answers, 3);
+    const matches = rankStories({ ...state.answers, categories: state.findCategories }, 8);
     return `<div>
       <div class="results-heading">
         <img src="${PEBBLE_IMAGE}" alt="" />
@@ -416,29 +502,99 @@
       </div>
       <ul class="stories">${matches.map(({ story, reasons }, index) => `
         <li class="stagger" style="animation-delay:${index * 60}ms"><article class="story-card">
-          <p class="story-meta">${escapeHtml(story.author)} · ${escapeHtml(story.cancer)} cancer · ${escapeHtml(story.stage.toLowerCase())}</p>
+          <p class="story-meta">${escapeHtml(story.author)}${story.cancer ? ` · ${escapeHtml(story.cancer)} cancer` : ""} · ${escapeHtml(story.stage.toLowerCase())}</p>
           <h2>${escapeHtml(story.title)}</h2>
           <p class="story-excerpt">“${escapeHtml(story.excerpt)}”</p>
           <div class="match-reasons"><p class="reason-title">Why this matched</p>
             <ul class="reason-list">${(reasons.length ? reasons : ["A story from someone further along the path"]).map((reason) => `<li>${escapeHtml(reason)}</li>`).join("")}</ul>
           </div>
-          <div class="story-bottom"><span>${story.minutes} min read · Sample story</span>
-            <button type="button" class="press primary-button read-button" data-action="read-story">Read story</button>
+          <div class="story-bottom"><span>${story.minutes} min read${story.sample ? " · Sample story" : ""}</span>
+            ${story.sample ? "" : `<button type="button" class="press primary-button read-button" data-action="read-story" data-id="${escapeHtml(story.id)}">${state.expandedStoryId === story.id ? "Close story" : "Read story"}</button>`}
           </div>
+          ${!story.sample && state.expandedStoryId === story.id ? `<p class="story-full">${escapeHtml(story.text)}</p>` : ""}
         </article></li>`).join("")}</ul>
-      <p class="results-disclaimer">These are shared experiences, not medical advice. Your answers stay private.</p>
+      ${state.status ? `<p class="error-text" role="status">${escapeHtml(state.status)}</p>` : ""}
+      <p class="results-disclaimer">These are shared experiences, not medical advice. Stories are reviewed before they appear here.</p>
+      <div class="share-actions"><button class="primary-button secondary-button" type="button" data-action="switch-share">Share my story</button></div>
     </div>`;
   }
 
+  function promptHtml() {
+    const prompts = guidedPrompts();
+    return `<div class="share-flow">
+      <p class="eyebrow">Share my story · prompt ${state.promptIndex + 1} of ${prompts.length}</p>
+      <h1 class="page-title">${escapeHtml(prompts[state.promptIndex])}</h1>
+      <p class="small-intro">Answer in your own words. Skip any prompt or finish whenever you are ready.</p>
+      <textarea id="prompt-answer" class="story-textarea" rows="7" placeholder="Write what feels right to share…">${escapeHtml(state.promptAnswers[state.promptIndex] || "")}</textarea>
+      <div class="share-actions"><button class="primary-button" type="button" data-action="next-prompt">${state.promptIndex === prompts.length - 1 ? "Review my story" : "Next prompt"}</button>
+      <button class="press text-toggle" type="button" data-action="finish-prompts">I’m finished</button></div>
+    </div>`;
+  }
+
+  function shareReviewHtml() {
+    return `<div class="share-flow"><p class="eyebrow">Your story · review</p>
+      <h1 class="page-title">Make this story yours.</h1>
+      <p class="small-intro">Edit every word before choosing to submit. Your story appears publicly only after review.</p>
+      <div class="share-actions"><button class="press text-toggle" type="button" data-action="assemble">Use my prompt answers</button>
+      <button class="press text-toggle" type="button" data-action="weave" ${state.busy || !assembledStory() ? "disabled" : ""}>Weave with AI</button></div>
+      <p class="small-intro">AI drafting sends your answers to OpenAI. You can edit or ignore the result.</p>
+      <label class="field-label" for="story-title">Story title</label>
+      <input id="story-title" class="story-field" maxlength="120" placeholder="Give your story a title" value="${escapeHtml(state.storyTitle)}" />
+      <label class="field-label" for="story-author">Name to display</label>
+      <input id="story-author" class="story-field" maxlength="80" placeholder="First name or nickname" value="${escapeHtml(state.storyAuthor)}" />
+      <label class="field-label" for="final-story">Your story</label>
+      <textarea id="final-story" class="story-textarea" rows="12" maxlength="12000">${escapeHtml(state.finalStory)}</textarea>
+      <label class="help-option"><input type="checkbox" id="open-to-help" ${state.openToHelp ? "checked" : ""} /> I may be open to helping someone else in the future.</label>
+      <p class="small-intro">This choice does not enable contact or messaging in this version.</p>
+      ${state.status ? `<p class="error-text" role="status">${escapeHtml(state.status)}</p>` : ""}
+      <button class="primary-button" type="button" data-action="submit-story" ${state.busy || !state.storyTitle.trim() || !state.storyAuthor.trim() || state.finalStory.trim().length < 10 ? "disabled" : ""}>Submit for review</button>
+    </div>`;
+  }
+
+  function thanksHtml() {
+    return `<div class="welcome"><img class="welcome-pebble" src="${PEBBLE_IMAGE}" alt="" />
+      <h1>Thank you for sharing your story.</h1>
+      <p>Your story is pending review. It appears on Pathmates only if approved. Submissions are stored temporarily and may disappear when the server restarts.</p>
+      <button class="primary-button" type="button" data-action="find-after-share">Find a story</button></div>`;
+  }
+
+  function adminHtml() {
+    if (!state.adminPasscode) return `<div class="share-flow"><h1 class="page-title">Story review</h1>
+      <p>Enter the team passcode to review submitted stories.</p>
+      <label class="field-label" for="admin-passcode">Passcode</label>
+      <input class="story-field" id="admin-passcode" type="password" autocomplete="off" />
+      ${state.status ? `<p class="error-text" role="alert">${escapeHtml(state.status)}</p>` : ""}
+      <button class="primary-button" type="button" data-action="admin-unlock">Open review queue</button></div>`;
+    return `<div class="share-flow"><h1 class="page-title">Pending stories</h1>
+      <p>${state.pendingStories.length} awaiting review</p>
+      ${state.status ? `<p class="error-text" role="status">${escapeHtml(state.status)}</p>` : ""}
+      ${state.pendingStories.map((story) => `<article class="admin-story">
+        <h2>${escapeHtml(story.title)}</h2><p>${escapeHtml(story.author)} · ${escapeHtml(story.cancer)} · ${escapeHtml(story.stage)}</p>
+        <p class="story-full">${escapeHtml(story.text)}</p>
+        <p>Open to helping later: ${story["open-to-help"] ? "Yes" : "No"}</p>
+        <p>Suggested categories: ${escapeHtml(Object.values(story.categories || {}).flat().filter(Boolean).join(", ") || "None available")}</p>
+        <div class="share-actions"><button class="primary-button" type="button" data-action="admin-approve" data-id="${escapeHtml(story.id)}">Approve</button>
+        <button class="press text-toggle" type="button" data-action="admin-reject" data-id="${escapeHtml(story.id)}">Reject</button></div>
+      </article>`).join("")}</div>`;
+  }
+
   function render() {
-    if (state.done || state.step === 0) {
+    if (window.location.pathname === "/admin") {
+      progress.hidden = true;
+      footer.hidden = true;
+      page.innerHTML = `<div class="animate-rise">${adminHtml()}</div>`;
+      return;
+    }
+    if (state.done || state.step === 0 || state.step >= 8) {
       progress.hidden = true;
       progress.innerHTML = "";
     } else {
       progress.hidden = false;
       progress.setAttribute("role", "img");
-      progress.setAttribute("aria-label", `Step ${state.step} of 6`);
-      progress.innerHTML = `<span class="progress-label">${state.step} of 6</span><div class="progress-track">${Array.from({ length: 6 }, (_, index) => `<span class="progress-dot ${index < state.step ? "active" : ""}"></span>`).join("")}</div>`;
+      const current = state.step === 7 ? 5 : state.step;
+      const total = state.path === "find" ? 6 : 5;
+      progress.setAttribute("aria-label", `Step ${current} of ${total}`);
+      progress.innerHTML = `<span class="progress-label">${current} of ${total}</span><div class="progress-track">${Array.from({ length: total }, (_, index) => `<span class="progress-dot ${index < current ? "active" : ""}"></span>`).join("")}</div>`;
     }
 
     let html;
@@ -446,9 +602,10 @@
     else switch (state.step) {
       case 0:
         html = `<div class="welcome"><img class="welcome-pebble" src="${PEBBLE_IMAGE}" alt="Pebble, a friendly stone character, waving hello" />
-          <h1>Let’s find a story that feels relevant to you.</h1>
-          <p>Share only what you’re comfortable with. Your answers stay private unless you later choose to share your story.</p>
-          <button class="primary-button" data-action="begin" type="button">Begin</button></div>`;
+          <h1>Stories can help us feel less alone.</h1>
+          <p>Find a story that speaks to you, or share your own in your own time. Only stories you submit and a reviewer approves become public.</p>
+          <div class="share-actions"><button class="primary-button" data-action="begin-find" type="button">Find a story</button>
+          <button class="primary-button secondary-button" data-action="begin-share" type="button">Share my story</button></div></div>`;
         break;
       case 1: html = questionHtml("What type of cancer are you navigating?", CANCER, "cancer", true); break;
       case 2: html = questionHtml("How old are you?", AGES, "age", true); break;
@@ -456,12 +613,15 @@
       case 4: html = questionHtml("What’s most on your mind today?", TOPICS, "topic"); break;
       case 5: html = storyInputHtml(); break;
       case 6: html = reviewHtml(); break;
+      case 7: html = promptHtml(); break;
+      case 8: html = shareReviewHtml(); break;
+      case 9: html = thanksHtml(); break;
       default: html = "";
     }
     page.innerHTML = `<div class="animate-rise">${html}</div>`;
-    footer.hidden = state.done || state.step === 0;
+    footer.hidden = state.done || state.step === 0 || state.step === 9;
     footer.innerHTML = footer.hidden ? "" : `<button class="press nav-button" type="button" data-action="back">← Back</button>
-      ${state.step >= 1 && state.step <= 4 ? `<button class="press nav-button" type="button" data-action="skip">Skip</button>` : `<span></span>`}`;
+      ${state.step >= 1 && state.step <= 4 || state.step === 7 ? `<button class="press nav-button" type="button" data-action="skip">Skip</button>` : `<span></span>`}`;
 
     if (state.step === 5 && state.mode === "type" && !state.done) {
       // Autofocus when switching from microphone choice to typing; not on every redraw.
@@ -487,7 +647,8 @@
   function goToStep(nextStep) {
     clearAdvance();
     if (state.step === 5 && nextStep !== 5) leaveStoryStep();
-    state.step = Math.max(0, Math.min(6, nextStep));
+    if (state.path === "share" && state.step === 4 && nextStep === 5) nextStep = 7;
+    state.step = Math.max(0, Math.min(9, nextStep));
     state.done = false;
     render();
     window.scrollTo({ top: 0, behavior: "instant" });
@@ -497,6 +658,61 @@
     if (!state.answers.story.trim() || state.recording || state.transcribing) return;
     state.summary = buildSummary(state.answers);
     goToStep(6);
+  }
+
+  function openShareReview() {
+    if (!state.finalStory) state.finalStory = assembledStory();
+    state.status = "";
+    goToStep(8);
+  }
+
+  async function weaveDraft() {
+    if (!assembledStory()) return;
+    state.busy = true;
+    state.status = "Weaving your answers…";
+    render();
+    try {
+      const result = await api("/api/weave", { "session-token": await ensureToken(), answers: assembledStory() });
+      state.finalStory = result.draft;
+      state.status = "Draft ready. Please review and edit it before submitting.";
+    } catch (error) { state.status = error.message; }
+    state.busy = false;
+    render();
+  }
+
+  async function submitStory() {
+    if (state.finalStory.trim().length < 10 || !state.storyTitle.trim() || !state.storyAuthor.trim()) return;
+    state.busy = true;
+    state.status = "Submitting your story…";
+    render();
+    try {
+      const sessionToken = await ensureToken();
+      let categories = {};
+      try {
+        const classified = await api("/api/transcript", { "session-token": sessionToken, transcript: state.finalStory });
+        categories = classified.categories || {};
+      } catch { /* Classification is optional; the patient's story remains authoritative. */ }
+      state.categories = categories;
+      await api("/api/stories/submit", { "session-token": sessionToken,
+        title: state.storyTitle.trim(), author: state.storyAuthor.trim(), text: state.finalStory.trim(),
+        "open-to-help": state.openToHelp, categories });
+      state.status = "";
+      goToStep(9);
+    } catch (error) { state.status = error.message; }
+    state.busy = false;
+    render();
+  }
+
+  async function refreshAdmin() {
+    try {
+      const data = await api("/api/admin/stories", { "session-token": await ensureToken(), passcode: state.adminPasscode });
+      state.pendingStories = data.stories || [];
+      state.status = "";
+    } catch (error) {
+      state.status = error.message;
+      state.adminPasscode = "";
+    }
+    render();
   }
 
   // Audio recording is preserved. The POST endpoint remains a SERVER dependency.
@@ -588,16 +804,13 @@
   }
 
   async function transcribe(wav) {
-    const form = new FormData();
-    form.append("audio", wav, "story.wav");
-    let res;
-    try { res = await fetch(TRANSCRIBE_ENDPOINT, { method: "POST", body: form }); }
-    catch { throw new Error("Couldn’t transcribe that recording. Please try again or type instead."); }
-    const data = await res.json().catch(() => null);
-    if (!res.ok) {
-      throw new Error(typeof data?.error === "string" ? data.error : "Couldn’t transcribe that recording. Please try again or type instead.");
+    const bytes = new Uint8Array(await wav.arrayBuffer());
+    let binary = "";
+    for (let i = 0; i < bytes.length; i += 8192) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
     }
-    if (typeof data?.transcript !== "string") {
+    const data = await api(TRANSCRIBE_ENDPOINT, { "session-token": await ensureToken(), audio: btoa(binary) });
+    if (typeof data.transcript !== "string") {
       throw new Error("Couldn’t transcribe that recording. Please try again or type instead.");
     }
     return data.transcript;
@@ -649,6 +862,15 @@
   }
 
   page.addEventListener("input", (event) => {
+    if (event.target.id === "prompt-answer") state.promptAnswers[state.promptIndex] = event.target.value;
+    if (event.target.id === "story-title") state.storyTitle = event.target.value;
+    if (event.target.id === "story-author") state.storyAuthor = event.target.value;
+    if (event.target.id === "final-story") state.finalStory = event.target.value;
+    if (["story-title", "story-author", "final-story"].includes(event.target.id)) {
+      const submit = page.querySelector('[data-action="submit-story"]');
+      if (submit) submit.disabled = !state.storyTitle.trim() || !state.storyAuthor.trim() || state.finalStory.trim().length < 10;
+    }
+    if (event.target.id === "open-to-help") state.openToHelp = event.target.checked;
     if (event.target.id === "story-textarea") {
       state.answers.story = event.target.value;
       const button = page.querySelector('[data-action="review"]');
@@ -666,7 +888,8 @@
     if (!button || button.disabled) return;
     const action = button.dataset.action;
     switch (action) {
-      case "begin": goToStep(1); break;
+      case "begin-find": state.path = "find"; goToStep(1); break;
+      case "begin-share": state.path = "share"; goToStep(1); break;
       case "pick": {
         const field = button.dataset.field;
         const options = { cancer: CANCER, age: AGES, stage: STAGES, topic: TOPICS }[field];
@@ -679,8 +902,19 @@
         state.advanceTimeout = setTimeout(() => goToStep(state.step + 1), 140);
         break;
       }
-      case "skip": goToStep(state.step + 1); break;
-      case "back": goToStep(state.step - 1); break;
+      case "skip":
+        if (state.step === 7) {
+          if (state.promptIndex < guidedPrompts().length - 1) { state.promptIndex++; render(); }
+          else openShareReview();
+        } else goToStep(state.step + 1);
+        break;
+      case "back":
+        if (state.step === 7) {
+          if (state.promptIndex > 0) { state.promptIndex--; render(); }
+          else goToStep(4);
+        } else if (state.step === 8) goToStep(7);
+        else goToStep(state.step - 1);
+        break;
       case "type": state.mode = "type"; render(); break;
       case "prompt": {
         const prompt = starters(state.answers.stage, state.answers.topic)[Number(button.dataset.index)];
@@ -692,13 +926,31 @@
       }
       case "record": if (state.recording) void stopRecording(); else void startRecording(); break;
       case "review": goReview(); break;
+      case "next-prompt":
+        if (state.promptIndex < guidedPrompts().length - 1) { state.promptIndex++; render(); }
+        else openShareReview();
+        break;
+      case "finish-prompts": openShareReview(); break;
+      case "assemble": state.finalStory = assembledStory(); state.status = ""; render(); break;
+      case "weave": void weaveDraft(); break;
+      case "submit-story": void submitStory(); break;
+      case "find-after-share": state.path = "find"; goToStep(5); break;
+      case "switch-share": state.path = "share"; state.promptIndex = 0; goToStep(7); break;
       case "edit-field": goToStep(Number(button.dataset.step)); break;
-      case "find": if (state.summary.trim()) { state.done = true; render(); window.scrollTo(0, 0); } break;
+      case "find": void findStories(); break;
       case "edit-results": state.done = false; render(); break;
       case "hear": state.answers.hear = button.dataset.hear; render(); break;
-      case "read-story":
-        // The source prototype contains sample cards but does not have full-story pages.
-        window.alert("This is a sample story. The original project does not include full story pages yet.");
+      case "read-story": state.expandedStoryId = state.expandedStoryId === button.dataset.id ? "" : button.dataset.id; render(); break;
+      case "admin-unlock": state.adminPasscode = document.getElementById("admin-passcode")?.value || ""; void refreshAdmin(); break;
+      case "admin-approve":
+      case "admin-reject":
+        void (async () => {
+          try {
+            await api("/api/admin/review", { "session-token": await ensureToken(), passcode: state.adminPasscode,
+              id: button.dataset.id, decision: action === "admin-approve" ? "approve" : "reject" });
+            await refreshAdmin();
+          } catch (error) { state.status = error.message; render(); }
+        })();
         break;
     }
   });

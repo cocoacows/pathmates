@@ -1,91 +1,36 @@
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
 import java.io.OutputStream;
-
-import org.json.JSONException;
+import java.nio.charset.StandardCharsets;
 import org.json.JSONObject;
-import org.json.JSONTokener;
-
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 
-public abstract class APIHandler implements HttpHandler
-{
+public abstract class APIHandler implements HttpHandler {
+    private static final int MAX_REQUEST_BYTES = 37_000_000;
 
-	public void handle(HttpExchange exchange) throws IOException
-	{
-		BufferedReader reader = new BufferedReader(new InputStreamReader(exchange.getRequestBody()));
-		StringBuilder builder = new StringBuilder();
+    public void handle(HttpExchange exchange) throws IOException {
+        JSONObject response;
+        if (!"POST".equals(exchange.getRequestMethod())) {
+            response = error(405, "Use POST.");
+        } else {
+            try {
+                byte[] body = exchange.getRequestBody().readNBytes(MAX_REQUEST_BYTES + 1);
+                if (body.length > MAX_REQUEST_BYTES) response = error(413, "Request is too large.");
+                else response = handleAPICall(new JSONObject(new String(body, StandardCharsets.UTF_8)));
+            } catch (Exception e) {
+                response = error(400, "Invalid JSON request.");
+            }
+        }
+        byte[] output = response.toString().getBytes(StandardCharsets.UTF_8);
+        exchange.getResponseHeaders().set("Content-Type", "application/json; charset=UTF-8");
+        exchange.getResponseHeaders().set("Cache-Control", "no-store");
+        exchange.sendResponseHeaders(response.optInt("response", 500), output.length);
+        try (OutputStream out = exchange.getResponseBody()) { out.write(output); }
+    }
 
-		String ln = reader.readLine();
-		while(ln != null)
-		{
-			builder.append(ln);
-			builder.append("\n");
+    public abstract JSONObject handleAPICall(JSONObject json);
 
-			ln = reader.readLine();
-		}
-		
-		JSONTokener tokenizer = new JSONTokener(builder.toString());
-		JSONObject object = null;
-		try
-		{
-			object = new JSONObject(tokenizer);
-		} 
-		catch (JSONException e)
-		{
-			e.printStackTrace();
-		}
-		
-		JSONObject response = handleAPICallWrapper(object);
-		String responseString = response.toString();
-		exchange.sendResponseHeaders(response.getInt("response"), responseString.getBytes().length);
-		
-		try (OutputStream os = exchange.getResponseBody()) 
-		{
-			os.write(responseString.getBytes());
-			os.close();
-		}
-		catch(IOException e)
-		{
-			e.printStackTrace();
-		}
-	}
-	
-	private JSONObject handleAPICallWrapper(JSONObject JSON)
-	{
-		if(JSON == null)
-			return nullResponse();
-
-		try 
-		{ 
-			return handleAPICall(JSON);
-		} 
-		catch (JSONException e)
-		{ 
-			return badResponse();
-		}
-	}
-	
-	public abstract JSONObject handleAPICall(JSONObject JSON);
-	
-	protected JSONObject nullResponse()
-	{
-		JSONObject response = new JSONObject();
-		response.put("response", 400);
-		response.put("successful", false);
-		response.put("response-text", "Invalid JSON Request");
-		return response;
-	}
-	
-	private JSONObject badResponse()
-	{
-		JSONObject response = new JSONObject();
-		response.put("response", 400);
-		response.put("successful", false);
-		response.put("response-text", "Bad request");
-		return response;
-	}
+    private static JSONObject error(int status, String message) {
+        return new JSONObject().put("response", status).put("successful", false).put("response-text", message);
+    }
 }
-
