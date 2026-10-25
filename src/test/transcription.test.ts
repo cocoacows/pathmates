@@ -3,6 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Route } from "@/routes/api.transcribe";
 import { encodeWav, resample, transcribe } from "@/lib/recorder";
 
+const workerEnv = vi.hoisted(() => ({ MODEL_API_KEY: "" }));
+vi.mock("cloudflare:workers", () => ({ env: workerEnv }));
+
 const post = (
   Route.options.server?.handlers as { POST: (args: { request: Request }) => Promise<Response> }
 ).POST;
@@ -24,6 +27,7 @@ function upload(audio: Blob, origin = "http://localhost:3000"): Request {
 describe("Meta transcription route", () => {
   beforeEach(() => {
     vi.stubEnv("MODEL_API_KEY", "test-key");
+    workerEnv.MODEL_API_KEY = "";
   });
 
   afterEach(() => {
@@ -73,6 +77,19 @@ describe("Meta transcription route", () => {
 
     expect(response.status).toBe(501);
     expect(meta).not.toHaveBeenCalled();
+  });
+
+  it("reads a Worker secret when process.env is empty", async () => {
+    vi.stubEnv("MODEL_API_KEY", "");
+    workerEnv.MODEL_API_KEY = "worker-key";
+    const meta = vi.fn().mockResolvedValue(Response.json({ transcript: "Testing one two three" }));
+    vi.stubGlobal("fetch", meta);
+
+    const response = await post({ request: upload(wavFile()) });
+
+    expect(response.status).toBe(200);
+    expect(meta).toHaveBeenCalledOnce();
+    expect(meta.mock.calls[0]![1].headers).toMatchObject({ Authorization: "Bearer worker-key" });
   });
 
   it("rejects a cross-origin request before calling Meta", async () => {

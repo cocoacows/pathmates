@@ -7,6 +7,28 @@ import { createFileRoute } from "@tanstack/react-router";
 const MAX_BYTES = 30 * 1024 * 1024;
 const MAX_SECONDS = 10 * 60;
 
+async function serverSecret(name: string): Promise<string | undefined> {
+  // Cloudflare can supply project secrets as Worker bindings. Local development
+  // and other hosts can still use process.env.
+  let workerAccess: "unavailable" | "missing" = "unavailable";
+  try {
+    const moduleName = "cloudflare:workers";
+    const { env } = (await import(/* @vite-ignore */ moduleName)) as {
+      env?: Record<string, string>;
+    };
+    if (env) {
+      workerAccess = "missing";
+      if (env[name]) return env[name];
+    }
+  } catch {
+    // The cloudflare:workers module is not available in local Node.js development.
+  }
+  const value = process.env[name];
+  if (!value && name === "MODEL_API_KEY")
+    console.warn("Transcription secret unavailable", { workerAccess });
+  return value;
+}
+
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 
@@ -41,7 +63,7 @@ export const Route = createFileRoute("/api/transcribe")({
         if (origin && origin !== new URL(request.url).origin) {
           return json({ error: "This recording request isn’t allowed." }, 403);
         }
-        const key = process.env["MODEL_API_KEY"];
+        const key = await serverSecret("MODEL_API_KEY");
         if (!key)
           return json(
             { error: "Voice transcription isn’t set up yet. You can type your story instead." },
@@ -76,7 +98,7 @@ export const Route = createFileRoute("/api/transcribe")({
             [
               JSON.stringify({
                 mode: "PUSH_TO_TALK",
-                model: process.env["ASR_MODEL"] ?? "muse-voice-transcribe-1.0",
+                model: (await serverSecret("ASR_MODEL")) ?? "muse-voice-transcribe-1.0",
                 audioEncoding: "WAV",
               }),
             ],
