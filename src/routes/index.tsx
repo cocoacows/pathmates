@@ -179,27 +179,39 @@ function Onboarding() {
             </button>
           </div>
         ) : step === 1 ? (
-          <Question title="What type of cancer are you navigating?" hint="Pick the closest match. You can skip this." cols={2}>
+          <Question title="What type of cancer are you navigating?" cols={2}>
             {CANCER.map((c) => <Choice key={c} label={c} selected={a.cancer === c} onClick={() => pick("cancer", c)} wide={c === CANCER[CANCER.length - 1]} />)}
           </Question>
         ) : step === 2 ? (
-          <Question title="How old are you?" hint="Only used to find stories from people at a similar stage of life." cols={2}>
+          <Question title="How old are you?" cols={2}>
             {AGES.map((c) => <Choice key={c} label={c} selected={a.age === c} onClick={() => pick("age", c)} />)}
           </Question>
         ) : step === 3 ? (
-          <Question title="Where are you right now?" hint="There’s no wrong answer.">
+          <Question title="Where are you right now?">
             {STAGE.map((c) => <Choice key={c} label={c} selected={a.stage === c} onClick={() => pick("stage", c)} />)}
           </Question>
         ) : step === 4 ? (
-          <Question title="What’s most on your mind today?" hint="Choose whatever feels heaviest right now.">
+          <Question title="What’s most on your mind today?">
             {TOPICS.map((c) => <Choice key={c} label={c} selected={a.topic === c} onClick={() => pick("topic", c)} />)}
           </Question>
         ) : step === 5 ? (
           <div>
             <h1 className="text-3xl leading-snug">Tell us what’s happening and what you’d like to hear from someone who has been there.</h1>
-            <p className="mt-3 text-muted-foreground">Take your time. Speak or type, whichever feels easier.</p>
+            <p className="mt-8 text-sm font-medium text-muted-foreground">{promptIntro}</p>
+            <div className="mt-3 grid gap-2.5">
+              {prompts.map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => { addPrompt(p); if (mode === "choose") setMode("type"); }}
+                  className="press rounded-2xl border border-border bg-card px-5 py-3.5 text-left text-base leading-snug hover:border-primary/50 hover:bg-accent/40"
+                >
+                  {p}
+                </button>
+              ))}
+            </div>
 
-            <div className="mt-8 flex flex-col items-center gap-3">
+            <div className="mt-10 flex flex-col items-center gap-3">
               <button
                 type="button"
                 onClick={recording ? stopRecording : startRecording}
@@ -225,20 +237,6 @@ function Onboarding() {
               If you record, your audio is sent to Meta for transcription. You can review and edit the text before continuing.
             </p>
             {micError && <p className="mt-3 text-center text-sm text-destructive" role="alert">{micError}</p>}
-
-            <p className="mt-7 text-sm font-medium text-muted-foreground">{promptIntro}</p>
-            <div className="mt-3 grid gap-2.5">
-              {prompts.map((p) => (
-                <button
-                  key={p}
-                  type="button"
-                  onClick={() => { addPrompt(p); if (mode === "choose") setMode("type"); }}
-                  className="press rounded-2xl border border-border bg-card px-5 py-3.5 text-left text-base leading-snug hover:border-primary/50 hover:bg-accent/40"
-                >
-                  {p}
-                </button>
-              ))}
-            </div>
 
             {mode !== "choose" && (
               <>
