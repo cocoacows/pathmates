@@ -147,14 +147,14 @@ public class WebServer
 		            if(transcript.length() > 36000000)
 		                return transcriptionError(413, "Transcript text file too large.");
 
-		            JSONObject catagories = processTranscript(transcript);
+		            JSONObject categories = processTranscript(transcript);
 		            
 		            JSONObject ret = new JSONObject();
 
 		            ret.put("response", 200);
 		            ret.put("successful", true);
 		            ret.put("response-text", "Transcription successful!");
-		            ret.put("catagories", catagories);
+		            ret.put("categories", categories);
 
 		            return ret;
 		        }
