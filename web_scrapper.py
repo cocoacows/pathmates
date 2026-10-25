@@ -2,28 +2,6 @@
 # Date: 10/24/2026
 # Purpose: This program scrapes the web for information and displays it in a readable format.
 
-#!/usr/bin/env python3
-"""
-Cancer story collector - NO Reddit API key needed.
-
-Pulls public posts from the Arctic Shift archive (https://arctic-shift.photon-reddit.com),
-a free research archive of Reddit data, then filters for first-person stories.
-
-Setup:
-    pip install requests
-
-Usage:
-    python cancer_stories_no_key.py
-    python cancer_stories_no_key.py --subreddits cancer breastcancer --after 2024-01-01 --max-per-sub 1000
-    python cancer_stories_no_key.py --input-file my_dump.jsonl     # offline mode
-
-Notes:
-    - Authors are not saved (sensitive health content).
-    - The archive can lag behind Reddit and may be slow or time out at times;
-      the script retries and keeps whatever it already collected.
-    - Check Arctic Shift's usage guidance and any ethics requirements for your project.
-"""
-
 import argparse
 import csv
 import json
