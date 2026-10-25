@@ -11,6 +11,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Base64;
 import java.util.HashMap;
+import java.util.Random;
 import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -46,13 +47,15 @@ public class WebServer
 				newUser.cancerStage = getStringOrDefault(JSON, "cancer-stage", null);
 				newUser.mindState = getStringOrDefault(JSON, "mind-state", null);
 				newUser.age = getIntOrDefault(JSON, "age", 0);
+				newUser.sessionToken = generateSessionToken();
 				
-				users.put(newUser.name, newUser);
+				users.put(newUser.sessionToken, newUser);
 				
 				JSONObject ret = new JSONObject();
 				
 				ret.put("response", 200);
 				ret.put("successful", true);
+				ret.put("session-token", newUser.sessionToken);
 				ret.put("response-text", "Survey submission successful!");
 				
 				return ret;
@@ -64,11 +67,11 @@ public class WebServer
 			
 			public JSONObject handleAPICall(JSONObject JSON)
 			{
-				String name = getStringOrDefault(JSON, "name", null);
+				String sessionToken = getStringOrDefault(JSON, "session-token", null);
 				String audioBase64 = getStringOrDefault(JSON, "audio", null);
 
 		        // Verify the user exists.
-		        if(name == null || !users.containsKey(name))
+		        if(sessionToken == null || !users.containsKey(sessionToken))
 		            return transcriptionError(404, "User not found.");
 
 		        // Verify audio was included.
@@ -127,11 +130,11 @@ public class WebServer
 			
 			public JSONObject handleAPICall(JSONObject JSON)
 			{
-				String name = getStringOrDefault(JSON, "name", null);
+				String sessionToken = getStringOrDefault(JSON, "session-token", null);
 				String transcript = getStringOrDefault(JSON, "transcript", null);
 
 		        // Verify the user exists.
-		        if(name == null || !users.containsKey(name))
+				if(sessionToken == null || !users.containsKey(sessionToken))
 		            return transcriptionError(404, "User not found.");
 
 		        // Verify audio was included.
@@ -171,6 +174,14 @@ public class WebServer
 		server.createContext("/favicon.ico", new FileHandler(new File("websiteFiles/favicon.ico")));
 	}
 	
+
+	protected static String generateSessionToken()
+	{
+		byte[] buf = new byte[32];
+		new Random().nextBytes(buf);
+		return Base64.getUrlEncoder().withoutPadding().encodeToString(buf);
+	}
+
 
 	private static final HttpClient openAIClient = HttpClient.newBuilder()
 			.connectTimeout(Duration.ofSeconds(15))
